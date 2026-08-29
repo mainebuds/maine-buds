@@ -4,9 +4,16 @@
     box-sizing: border-box;
 }
 
+html,
+body {
+    width: 100%;
+    min-height: 100%;
+}
+
 body {
     font-family: Arial, sans-serif;
     background-color: #f5f5f5;
+    overflow-x: hidden;
 }
 
 header {
@@ -37,6 +44,7 @@ header {
 .hero {
     position: relative;
     height: calc(100vh - 110px);
+    min-height: 500px;
     background-image: url("maine-coast.jpg");
     background-size: cover;
     background-position: center;
@@ -68,4 +76,46 @@ header {
     font-weight: bold;
     text-align: center;
     white-space: nowrap;
+}
+
+/* PHONE / MOBILE */
+@media (max-width: 600px) {
+
+    header {
+        height: 85px;
+        padding: 0 10px;
+        justify-content: center;
+    }
+
+    .logo {
+        font-size: 26px;
+        letter-spacing: 1px;
+        gap: 7px;
+        white-space: nowrap;
+    }
+
+    .leaf {
+        width: 32px;
+        height: 32px;
+    }
+
+    .hero {
+        height: calc(100vh - 85px);
+        min-height: 500px;
+        background-position: center;
+    }
+
+    .coming-soon {
+        top: 43%;
+        font-size: 15vw;
+        letter-spacing: 1px;
+    }
+
+    .tagline {
+        bottom: 8%;
+        width: 90%;
+        padding: 14px 12px;
+        font-size: 18px;
+        white-space: normal;
+    }
 }
