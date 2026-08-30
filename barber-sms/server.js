@@ -1,6 +1,73 @@
 const express = require("express");
 
 const app = express();
+// ========================================
+// BUSINESS PRO SMS PUBLIC INFORMATION PAGE
+// ========================================
+
+app.get("/", (req, res) => {
+
+  res.type("html").send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Business Pro SMS</title>
+    </head>
+
+    <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6;">
+
+      <h1>Business Pro SMS</h1>
+
+      <p>
+        Business Pro SMS provides web-based appointment notification
+        tools for appointment-based businesses.
+      </p>
+
+      <p>
+        Customers may receive transactional appointment confirmations,
+        reminders, scheduling updates, and cancellation notifications
+        after voluntarily opting in.
+      </p>
+
+      <h2>How SMS Consent Works</h2>
+
+      <p>
+        Customers enter their mobile phone number in an online
+        appointment booking form and separately check an unchecked
+        SMS consent box.
+      </p>
+
+      <p>
+        SMS consent is optional and is not required to book an
+        appointment or purchase goods or services.
+      </p>
+
+      <p>
+        Message frequency varies. Message and data rates may apply.
+        Reply STOP to opt out. Reply HELP for help.
+      </p>
+
+      <h2>SMS Program Information</h2>
+
+      <p>
+        <a href="/sms-consent">View SMS Consent Form</a>
+      </p>
+
+      <p>
+        <a href="/privacy">Privacy Policy</a>
+      </p>
+
+      <p>
+        <a href="/terms">Terms & Conditions</a>
+      </p>
+
+    </body>
+    </html>
+  `);
+
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
