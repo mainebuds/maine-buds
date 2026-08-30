@@ -380,6 +380,79 @@ app.post(
 // ========================================
 // START SERVER
 // ========================================
+// SMS CONSENT / OPT-IN PAGE
+// ========================================
+
+app.get("/sms-consent", (req, res) => {
+
+  res.type("html").send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>SMS Consent | Business Pro SMS</title>
+    </head>
+
+    <body style="font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; line-height: 1.6;">
+
+      <h1>Appointment SMS Consent</h1>
+
+      <p>
+        Customers may voluntarily provide their mobile phone number
+        when booking an appointment online.
+      </p>
+
+      <form>
+
+        <label>
+          Mobile Phone
+        </label>
+
+        <br>
+
+        <input
+          type="tel"
+          placeholder="(207) 555-0123"
+          style="padding: 10px; width: 100%; max-width: 350px; margin: 8px 0 20px;"
+        >
+
+        <br>
+
+        <label>
+
+          <input type="checkbox">
+
+          I agree to receive appointment confirmations,
+          reminders, scheduling updates, and cancellation
+          notifications by text message.
+
+        </label>
+
+        <p>
+          SMS consent is optional and is not required to book
+          an appointment.
+        </p>
+
+        <p>
+          Message frequency varies. Message and data rates may apply.
+          Reply STOP to opt out. Reply HELP for help.
+        </p>
+
+      </form>
+
+      <p>
+        <a href="/privacy">Privacy Policy</a>
+        |
+        <a href="/terms">Terms & Conditions</a>
+      </p>
+
+    </body>
+    </html>
+  `);
+
+});
+// ========================================
 
 const PORT =
   process.env.PORT || 3000;
