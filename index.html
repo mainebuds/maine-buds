@@ -1,38 +1,244 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
     <title>Maine Buds | Coming Soon</title>
-    <link rel="stylesheet" href="style.css">
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 100%;
+            min-height: 100%;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background: #ffffff;
+            color: #174d3a;
+        }
+
+        /* =========================
+           HEADER
+        ========================= */
+
+        .site-header {
+            height: 90px;
+            background: #ffffff;
+
+            display: flex;
+            align-items: center;
+
+            padding: 0 55px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 3px;
+
+            color: #174d3a;
+        }
+
+        .brand-leaf {
+            width: 27px;
+            height: 27px;
+            object-fit: contain;
+        }
+
+        /* =========================
+           HERO
+        ========================= */
+
+        .hero {
+            position: relative;
+
+            width: 100%;
+            height: calc(100vh - 90px);
+            min-height: 520px;
+
+            background-image: url("maine-coast.jpg");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+
+            overflow: hidden;
+        }
+
+        /* =========================
+           COMING SOON
+        ========================= */
+
+        .coming-soon {
+            position: absolute;
+
+            left: 50%;
+            top: 43%;
+
+            transform:
+                translate(-50%, -50%)
+                rotate(-28deg);
+
+            color: #159957;
+
+            font-size: clamp(52px, 7vw, 92px);
+            font-weight: 900;
+
+            letter-spacing: 4px;
+
+            white-space: nowrap;
+
+            opacity: 0.9;
+
+            text-shadow:
+                0 2px 3px
+                rgba(0, 0, 0, 0.12);
+        }
+
+        /* =========================
+           TAGLINE
+        ========================= */
+
+        .tagline {
+            position: absolute;
+
+            left: 50%;
+            bottom: 35px;
+
+            transform: translateX(-50%);
+
+            width: max-content;
+            max-width: calc(100% - 40px);
+
+            padding: 13px 28px;
+
+            background:
+                rgba(255, 255, 255, 0.94);
+
+            border-radius: 7px;
+
+            color: #2b7656;
+
+            font-size: 17px;
+            font-weight: 600;
+
+            text-align: center;
+
+            box-shadow:
+                0 2px 8px
+                rgba(0, 0, 0, 0.08);
+        }
+
+        /* =========================
+           MOBILE
+        ========================= */
+
+        @media (max-width: 700px) {
+
+            .site-header {
+                height: 75px;
+                padding: 0 20px;
+            }
+
+            .brand {
+                font-size: 21px;
+                letter-spacing: 2px;
+                gap: 8px;
+            }
+
+            .brand-leaf {
+                width: 22px;
+                height: 22px;
+            }
+
+            .hero {
+                height: calc(100vh - 75px);
+                min-height: 500px;
+
+                background-position: center;
+            }
+
+            .coming-soon {
+                top: 42%;
+
+                font-size: clamp(
+                    38px,
+                    12vw,
+                    60px
+                );
+
+                letter-spacing: 2px;
+
+                transform:
+                    translate(-50%, -50%)
+                    rotate(-28deg);
+            }
+
+            .tagline {
+                bottom: 25px;
+
+                width: calc(100% - 35px);
+
+                padding: 12px 15px;
+
+                font-size: 14px;
+            }
+        }
+
+    </style>
 </head>
 
 <body>
 
-    <header>
-<div class="logo">
-    <img src="cannabis-leaf.png" class="leaf">
-    MAINE BUDS
-    <img src="cannabis-leaf.png" class="leaf">
-</div>
-        
+    <!-- MAINE BUDS HEADER -->
+
+    <header class="site-header">
+
+        <div class="brand">
+
+            <img
+                src="cannabis-leaf.png"
+                class="brand-leaf"
+                alt=""
+            >
+
+            <span>MAINE BUDS</span>
+
+            <img
+                src="cannabis-leaf.png"
+                class="brand-leaf"
+                alt=""
+            >
+
+        </div>
+
     </header>
+
+
+    <!-- LIGHTHOUSE / COMING SOON -->
 
     <main class="hero">
 
         <div class="coming-soon">
-
-       
             COMING SOON
         </div>
 
         <div class="tagline">
-            Connecting Maine People with Maine cannabis.
+            Maine Business, connecting Maine people with Maine cannabis.
         </div>
 
     </main>
 
 </body>
-
 </html>
