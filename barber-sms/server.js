@@ -64,7 +64,7 @@ app.post("/send-confirmation", async (req, res) => {
 
     const message = await client.messages.create({
       body: "sms_appointment_reminders",
-      from: TWILIO_FROM_NUMBER,
+      
       to: DEMO_ALLOWED_PHONE
     });
 
