@@ -47,6 +47,153 @@ app.get("/", (req, res) => {
   );
 
 });
+// ========================================
+// PRIVACY POLICY
+// ========================================
+
+app.get("/privacy", (req, res) => {
+
+  res.type("html").send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Privacy Policy | Business Pro SMS</title>
+    </head>
+
+    <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6;">
+
+      <h1>Privacy Policy</h1>
+
+      <p>
+        Business Pro SMS collects customer information only as needed
+        to provide appointment booking, confirmation, reminder,
+        and cancellation services.
+      </p>
+
+      <h2>Mobile Information</h2>
+
+      <p>
+        Mobile phone numbers and SMS consent information are not sold,
+        rented, or shared with third parties or affiliates for marketing
+        or promotional purposes.
+      </p>
+
+      <p>
+        Mobile information may only be used by service providers when
+        necessary to deliver the requested messaging service.
+      </p>
+
+      <h2>SMS Messaging</h2>
+
+      <p>
+        Customers may voluntarily opt in to receive appointment
+        confirmations, reminders, and cancellation updates by text.
+        Message frequency varies. Message and data rates may apply.
+      </p>
+
+      <p>
+        Reply STOP to opt out of SMS messages.
+        Reply HELP for assistance.
+      </p>
+
+      <h2>Information Collected</h2>
+
+      <p>
+        Information may include the customer's name, mobile phone number,
+        appointment date, appointment time, selected service,
+        and SMS consent status.
+      </p>
+
+      <h2>Contact</h2>
+
+      <p>
+        Questions regarding this Privacy Policy may be directed to
+        Business Pro SMS through the service through which the appointment
+        was booked.
+      </p>
+
+    </body>
+    </html>
+  `);
+
+});
+
+
+// ========================================
+// TERMS AND CONDITIONS
+// ========================================
+
+app.get("/terms", (req, res) => {
+
+  res.type("html").send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Terms & Conditions | Business Pro SMS</title>
+    </head>
+
+    <body style="font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6;">
+
+      <h1>SMS Terms & Conditions</h1>
+
+      <p>
+        By voluntarily opting in to Business Pro SMS messaging,
+        customers agree to receive transactional text messages related
+        to appointments they book or manage.
+      </p>
+
+      <h2>Types of Messages</h2>
+
+      <p>
+        Messages may include appointment confirmations,
+        appointment reminders, scheduling updates,
+        and cancellation notifications.
+      </p>
+
+      <h2>Consent</h2>
+
+      <p>
+        SMS consent is voluntary and is not required as a condition
+        of purchasing goods or services.
+      </p>
+
+      <h2>Message Frequency and Charges</h2>
+
+      <p>
+        Message frequency varies depending on appointment activity.
+        Message and data rates may apply according to the customer's
+        mobile carrier plan.
+      </p>
+
+      <h2>Opt Out</h2>
+
+      <p>
+        Reply STOP at any time to stop receiving SMS messages.
+        Reply HELP for assistance.
+      </p>
+
+      <h2>Privacy</h2>
+
+      <p>
+        Mobile phone numbers and SMS consent information are not shared
+        with third parties or affiliates for marketing or promotional
+        purposes.
+      </p>
+
+      <p>
+        See our Privacy Policy at:
+        https://village-barber-sms.onrender.com/privacy
+      </p>
+
+    </body>
+    </html>
+  `);
+
+});
 
 
 // ========================================
