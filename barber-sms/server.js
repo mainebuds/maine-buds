@@ -3,9 +3,9 @@ const express = require("express");
 const app = express();
 
 
-// ========================================
+// ============================================================
 // BODY PARSING
-// ========================================
+// ============================================================
 
 app.use(express.json());
 
@@ -16,9 +16,9 @@ app.use(
 );
 
 
-// ========================================
+// ============================================================
 // CORS
-// ========================================
+// ============================================================
 
 app.use((req, res, next) => {
 
@@ -46,14 +46,15 @@ app.use((req, res, next) => {
 });
 
 
-// ========================================
+// ============================================================
 // PAGE TEMPLATE
-// ========================================
+// ============================================================
 
 function sendPage(res, title, content) {
 
   res.type("html").send(`
     <!DOCTYPE html>
+
     <html lang="en">
 
     <head>
@@ -69,6 +70,10 @@ function sendPage(res, title, content) {
 
       <style>
 
+        * {
+          box-sizing: border-box;
+        }
+
         body {
           font-family: Arial, sans-serif;
           max-width: 820px;
@@ -76,10 +81,11 @@ function sendPage(res, title, content) {
           padding: 20px;
           line-height: 1.6;
           color: #222;
+          background: #fff;
         }
 
         h1 {
-          margin-bottom: 10px;
+          margin-bottom: 12px;
         }
 
         h2 {
@@ -91,9 +97,10 @@ function sendPage(res, title, content) {
         }
 
         .notice {
-          padding: 15px;
-          border: 1px solid #ccc;
-          margin: 20px 0;
+          margin: 25px 0;
+          padding: 18px;
+          border: 1px solid #bbb;
+          border-radius: 6px;
         }
 
         .links {
@@ -102,17 +109,48 @@ function sendPage(res, title, content) {
           border-top: 1px solid #ddd;
         }
 
-        input[type="tel"] {
-          padding: 10px;
+        label {
+          display: block;
+          margin-top: 18px;
+        }
+
+        input,
+        select {
           width: 100%;
-          max-width: 350px;
-          margin: 8px 0 20px;
+          max-width: 420px;
+          padding: 11px;
+          margin-top: 6px;
+          font-size: 16px;
         }
 
         .consent-box {
-          padding: 15px;
-          border: 1px solid #ccc;
-          margin: 15px 0;
+          margin-top: 24px;
+          padding: 18px;
+          border: 2px solid #555;
+          border-radius: 6px;
+        }
+
+        .consent-box label {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          margin: 0;
+        }
+
+        .consent-box input {
+          width: auto;
+          margin-top: 6px;
+        }
+
+        button {
+          margin-top: 24px;
+          padding: 12px 20px;
+          font-size: 16px;
+          cursor: pointer;
+        }
+
+        .small {
+          font-size: 14px;
         }
 
       </style>
@@ -131,9 +169,9 @@ function sendPage(res, title, content) {
 }
 
 
-// ========================================
-// BUSINESS PRO SMS HOME PAGE
-// ========================================
+// ============================================================
+// BUSINESS PRO SMS HOME
+// ============================================================
 
 app.get("/", (req, res) => {
 
@@ -145,58 +183,66 @@ app.get("/", (req, res) => {
       <h1>Business Pro SMS</h1>
 
       <p>
-        Business Pro SMS provides web-based appointment
-        notification tools for appointment-based businesses.
+        Business Pro SMS provides appointment booking and
+        transactional SMS notification tools for
+        appointment-based businesses.
       </p>
 
       <p>
-        The messaging program is used for transactional
-        appointment communications such as confirmations,
-        reminders, scheduling updates, and cancellation
-        notifications.
+        Customers who voluntarily opt in may receive
+        appointment confirmations, reminders, scheduling
+        updates, and cancellation notifications.
       </p>
 
 
-      <h2>How SMS Consent Works</h2>
-
-      <p>
-        Customers voluntarily enter their mobile phone number
-        during the online appointment booking process.
-      </p>
-
-      <p>
-        Customers who want text notifications separately check
-        an unchecked SMS consent box.
-      </p>
-
-      <p>
-        SMS consent is optional and is not required to book an
-        appointment or purchase goods or services.
-      </p>
-
+      <h2>Business Pro SMS Messaging Program</h2>
 
       <div class="notice">
 
-        <strong>SMS Program Disclosure</strong>
+        <p>
+          Customers may receive up to 6 SMS messages per
+          appointment, depending on appointment activity.
+        </p>
 
         <p>
-          Message frequency varies based on appointment activity.
           Message and data rates may apply.
         </p>
 
         <p>
           Reply STOP to opt out.
-          Reply HELP for assistance.
+          Reply HELP for help.
+        </p>
+
+        <p>
+          SMS consent is voluntary and is not required to
+          book an appointment or purchase goods or services.
         </p>
 
       </div>
+
+
+      <h2>How Customers Opt In</h2>
+
+      <p>
+        Customers enter their mobile phone number during the
+        online appointment booking process.
+      </p>
+
+      <p>
+        Customers who want SMS appointment notifications
+        separately check an unchecked SMS consent checkbox.
+      </p>
+
+      <p>
+        The checkbox is optional.
+      </p>
 
 
       <div class="links">
 
         <p>
           <a href="/sms-consent">
-            SMS Consent / Opt-In Information
+            View SMS Opt-In Form
           </a>
         </p>
 
@@ -220,9 +266,9 @@ app.get("/", (req, res) => {
 });
 
 
-// ========================================
+// ============================================================
 // PRIVACY POLICY
-// ========================================
+// ============================================================
 
 app.get("/privacy", (req, res) => {
 
@@ -235,44 +281,50 @@ app.get("/privacy", (req, res) => {
 
       <p>
         This Privacy Policy applies to the Business Pro SMS
-        appointment messaging program.
-      </p>
-
-      <p>
-        Business Pro SMS collects customer information only as
-        necessary to provide appointment booking and transactional
-        appointment messaging services.
+        appointment booking and transactional SMS messaging
+        program.
       </p>
 
 
       <h2>Information We Collect</h2>
 
       <p>
-        Information collected may include:
+        Business Pro SMS may collect information voluntarily
+        provided by customers when they use the appointment
+        booking service.
+      </p>
+
+      <p>
+        This information may include:
       </p>
 
       <ul>
 
-        <li>Customer name</li>
+        <li>Name</li>
 
         <li>Mobile phone number</li>
 
         <li>Appointment date and time</li>
 
-        <li>Selected appointment service</li>
+        <li>Appointment service information</li>
 
         <li>SMS opt-in and consent status</li>
 
       </ul>
 
 
-      <h2>How Information Is Used</h2>
+      <h2>How We Use Information</h2>
 
       <p>
-        Customer information is used to provide requested
-        appointment-related services, including appointment
-        confirmations, reminders, scheduling updates, and
-        cancellation notifications.
+        Customer information is used only as necessary to
+        provide appointment booking and appointment-related
+        communications requested by the customer.
+      </p>
+
+      <p>
+        SMS messages may include appointment confirmations,
+        reminders, scheduling updates, and cancellation
+        notifications.
       </p>
 
 
@@ -280,72 +332,56 @@ app.get("/privacy", (req, res) => {
 
       <p>
         <strong>
-          We do not share, sell, rent, or provide your mobile
-          phone number or messaging consent data to third parties
-          or affiliates for marketing or promotional purposes.
+          Business Pro SMS does not share, sell, rent, or
+          provide mobile phone numbers, SMS opt-in data, or
+          messaging consent to third parties or affiliates
+          for marketing or promotional purposes.
         </strong>
       </p>
 
       <p>
-        Mobile phone numbers, SMS opt-in information, and text
-        messaging consent are not sold or transferred to third
-        parties, affiliates, lead generators, or other businesses
-        for marketing or promotional purposes.
+        Mobile information and SMS consent are used only for
+        the Business Pro SMS messaging program for which the
+        customer voluntarily opted in.
       </p>
 
       <p>
-        Text messaging originator opt-in data and consent will
-        not be shared with any third parties or affiliates for
+        SMS consent is not transferred to another business,
+        sender, third party, affiliate, or lead generator for
         marketing or promotional purposes.
       </p>
 
-      <p>
-        Service providers may process information only when
-        necessary to operate the appointment or messaging service.
-        They are not permitted to use mobile opt-in information
-        for their own marketing or promotional purposes.
-      </p>
 
-
-      <h2>SMS Messaging</h2>
+      <h2>SMS Messaging Disclosures</h2>
 
       <p>
-        Customers voluntarily opt in to receive transactional
-        appointment text messages.
+        Customers may receive up to 6 SMS messages per
+        appointment, depending on appointment activity.
       </p>
 
       <p>
-        SMS consent is optional and is not required as a condition
-        of purchasing goods or services or booking an appointment.
-      </p>
-
-      <p>
-        Message frequency varies based on appointment activity.
         Message and data rates may apply.
       </p>
 
       <p>
         Reply STOP to opt out of SMS messages.
-        Reply HELP for assistance.
+      </p>
+
+      <p>
+        Reply HELP for help.
+      </p>
+
+      <p>
+        SMS consent is voluntary and is not required to
+        book an appointment or purchase goods or services.
       </p>
 
 
-      <h2>Privacy Policy and SMS Opt-In</h2>
+      <h2>Customer Choice</h2>
 
       <p>
-        Consent to receive SMS messages applies only to the
-        messaging program for which the customer directly opted in.
-        Consent is not transferable to another business or sender.
-      </p>
-
-
-      <h2>Contact</h2>
-
-      <p>
-        Questions concerning this Privacy Policy or the Business
-        Pro SMS messaging program may be directed through the
-        appointment service through which the customer booked
-        their appointment.
+        Customers who do not consent to SMS messaging may
+        still complete the appointment booking process.
       </p>
 
 
@@ -353,7 +389,7 @@ app.get("/privacy", (req, res) => {
 
         <p>
           <a href="/sms-consent">
-            SMS Consent Information
+            SMS Opt-In Form
           </a>
         </p>
 
@@ -377,9 +413,9 @@ app.get("/privacy", (req, res) => {
 });
 
 
-// ========================================
-// TERMS AND CONDITIONS
-// ========================================
+// ============================================================
+// TERMS & CONDITIONS
+// ============================================================
 
 app.get("/terms", (req, res) => {
 
@@ -396,11 +432,11 @@ app.get("/terms", (req, res) => {
       </p>
 
 
-      <h2>Types of Messages</h2>
+      <h2>Program Description</h2>
 
       <p>
-        Customers who voluntarily opt in may receive messages
-        concerning appointments they book or manage.
+        Customers who voluntarily opt in may receive
+        appointment-related SMS messages from Business Pro SMS.
       </p>
 
       <p>
@@ -420,55 +456,66 @@ app.get("/terms", (req, res) => {
       </ul>
 
 
-      <h2>Consent</h2>
+      <h2>SMS Consent</h2>
 
       <p>
-        Customers provide SMS consent by voluntarily entering
-        their mobile phone number and separately checking an
-        unchecked SMS consent box during the online appointment
-        booking process.
+        Customers opt in by voluntarily providing their mobile
+        phone number and separately checking an unchecked SMS
+        consent checkbox during the online appointment booking
+        process.
       </p>
 
       <p>
-        SMS consent is optional and is not required as a condition
-        of booking an appointment or purchasing goods or services.
+        SMS consent is optional.
       </p>
-
-
-      <h2>Message Frequency and Charges</h2>
 
       <p>
-        Message frequency varies based on appointment activity.
+        SMS consent is not required to book an appointment or
+        purchase goods or services.
       </p>
+
+
+      <h2>Message Frequency</h2>
+
+      <p>
+        Customers may receive up to 6 SMS messages per
+        appointment, depending on appointment activity.
+      </p>
+
+
+      <h2>Message and Data Rates</h2>
 
       <p>
         Message and data rates may apply according to the
-        customer's mobile carrier plan.
+        customer's wireless carrier and mobile plan.
       </p>
 
 
       <h2>Opt Out</h2>
 
       <p>
-        Reply STOP at any time to stop receiving SMS messages.
+        Reply STOP at any time to opt out of SMS messages.
       </p>
 
+
+      <h2>Help</h2>
+
       <p>
-        Reply HELP for assistance.
+        Reply HELP for help.
       </p>
 
 
       <h2>Privacy</h2>
 
       <p>
-        Mobile phone numbers, SMS opt-in information, and
-        messaging consent are not shared, sold, rented, or
-        provided to third parties or affiliates for marketing
-        or promotional purposes.
+        Business Pro SMS does not share, sell, rent, or provide
+        mobile phone numbers, SMS opt-in data, or messaging
+        consent to third parties or affiliates for marketing or
+        promotional purposes.
       </p>
 
       <p>
-        Review the full Privacy Policy here:
+        Read the full Privacy Policy:
       </p>
 
       <p>
@@ -482,7 +529,7 @@ app.get("/terms", (req, res) => {
 
         <p>
           <a href="/sms-consent">
-            SMS Consent Information
+            SMS Opt-In Form
           </a>
         </p>
 
@@ -500,42 +547,74 @@ app.get("/terms", (req, res) => {
 });
 
 
-// ========================================
-// SMS CONSENT / OPT-IN PAGE
-// ========================================
+// ============================================================
+// SMS OPT-IN FORM
+// ============================================================
 
 app.get("/sms-consent", (req, res) => {
 
   sendPage(
     res,
-    "SMS Consent | Business Pro SMS",
+    "SMS Opt-In | Business Pro SMS",
     `
 
-      <h1>Business Pro SMS Appointment Consent</h1>
+      <h1>Business Pro SMS Appointment Booking</h1>
 
       <p>
-        Business Pro SMS provides transactional appointment
-        notifications for appointment-based businesses.
-      </p>
-
-      <p>
-        Customers may voluntarily provide their mobile phone
-        number when booking an appointment online.
+        This public form demonstrates the SMS consent process
+        used with the Business Pro SMS appointment booking
+        workflow.
       </p>
 
 
-      <form>
+      <form
+        method="POST"
+        action="/sms-consent-demo"
+      >
 
-        <label for="demo-phone">
-          <strong>Mobile Phone</strong>
+        <label for="customer-name">
+          Customer Name
         </label>
 
-        <br>
+        <input
+          id="customer-name"
+          name="customerName"
+          type="text"
+          placeholder="Enter your name"
+        >
+
+
+        <label for="mobile-phone">
+          Mobile Phone
+        </label>
 
         <input
-          id="demo-phone"
+          id="mobile-phone"
+          name="phone"
           type="tel"
           placeholder="(207) 555-0123"
+        >
+
+
+        <label for="appointment-date">
+          Appointment Date
+        </label>
+
+        <input
+          id="appointment-date"
+          name="appointmentDate"
+          type="date"
+        >
+
+
+        <label for="appointment-time">
+          Appointment Time
+        </label>
+
+        <input
+          id="appointment-time"
+          name="appointmentTime"
+          type="time"
         >
 
 
@@ -543,38 +622,61 @@ app.get("/sms-consent", (req, res) => {
 
           <label>
 
-            <input type="checkbox">
+            <input
+              type="checkbox"
+              name="smsConsent"
+              value="yes"
+            >
 
-            I agree to receive appointment confirmations,
-            reminders, scheduling updates, and cancellation
-            notifications by text message from Business Pro SMS.
+            <span>
+
+              By checking this box, I agree to receive
+              transactional SMS messages from
+              <strong>Business Pro SMS</strong> regarding
+              appointment confirmations, reminders, scheduling
+              updates, and cancellation notifications.
+
+              I may receive up to 6 SMS messages per appointment,
+              depending on appointment activity.
+
+              Message and data rates may apply.
+
+              Reply STOP to opt out.
+              Reply HELP for help.
+
+              SMS consent is optional and is not required to
+              book an appointment or purchase goods or services.
+
+              <a href="/privacy">
+                Privacy Policy
+              </a>
+
+              |
+
+              <a href="/terms">
+                Terms & Conditions
+              </a>
+
+            </span>
 
           </label>
 
         </div>
 
+
+        <button type="submit">
+          Submit Appointment Form
+        </button>
+
       </form>
 
 
-      <p>
-        SMS consent is optional and is not required to book an
-        appointment or purchase goods or services.
-      </p>
+      <p class="small">
 
-      <p>
-        Message frequency varies based on appointment activity.
-        Message and data rates may apply.
-      </p>
+        The SMS checkbox above is unchecked by default.
+        Customers may submit the appointment form without
+        selecting SMS notifications.
 
-      <p>
-        Reply STOP to opt out.
-        Reply HELP for assistance.
-      </p>
-
-      <p>
-        Mobile phone numbers and messaging consent will not be
-        shared with third parties or affiliates for marketing
-        or promotional purposes.
       </p>
 
 
@@ -606,9 +708,74 @@ app.get("/sms-consent", (req, res) => {
 });
 
 
-// ========================================
-// SEND CONFIRMATION TEXT
-// ========================================
+// ============================================================
+// DEMONSTRATE OPTIONAL CONSENT
+// ============================================================
+
+app.post(
+  "/sms-consent-demo",
+  (req, res) => {
+
+    const selectedSMS =
+      req.body.smsConsent === "yes";
+
+
+    sendPage(
+      res,
+      "Appointment Form Submitted | Business Pro SMS",
+      `
+
+        <h1>Appointment Form Submitted</h1>
+
+        <p>
+          This page demonstrates that appointment booking can
+          be completed whether or not SMS consent is selected.
+        </p>
+
+
+        <div class="notice">
+
+          <strong>SMS Notification Selection:</strong>
+
+          <p>
+            ${
+              selectedSMS
+                ? "SMS notifications were voluntarily selected."
+                : "SMS notifications were not selected. The appointment form was still accepted."
+            }
+          </p>
+
+        </div>
+
+
+        <p>
+          <a href="/sms-consent">
+            Return to SMS Opt-In Form
+          </a>
+        </p>
+
+        <p>
+          <a href="/privacy">
+            Privacy Policy
+          </a>
+        </p>
+
+        <p>
+          <a href="/terms">
+            Terms & Conditions
+          </a>
+        </p>
+
+      `
+    );
+
+  }
+);
+
+
+// ============================================================
+// SEND APPOINTMENT CONFIRMATION SMS
+// ============================================================
 
 app.post(
   "/send-confirmation",
@@ -619,7 +786,10 @@ app.post(
       const {
         TWILIO_ACCOUNT_SID,
         TWILIO_AUTH_TOKEN,
-        DEMO_ALLOWED_PHONE
+        DEMO_ALLOWED_PHONE,
+        TWILIO_MESSAGING_SERVICE_SID,
+        TWILIO_PHONE_NUMBER,
+        TWILIO_FROM_NUMBER
       } = process.env;
 
 
@@ -630,25 +800,43 @@ app.post(
       ) {
 
         return res.status(500).json({
+
           success: false,
+
           error:
-            "Server configuration is incomplete."
+            "SMS server configuration is incomplete."
+
         });
 
       }
 
 
-      // ====================================
-      // NORMALIZE PHONE NUMBERS
-      // ====================================
+      const normalizePhone = (phone) => {
 
-      const normalizePhone = (phone) =>
-        String(phone || "")
-          .replace(/\D/g, "");
+        let digits =
+          String(phone || "")
+            .replace(/\D/g, "");
+
+
+        if (
+          digits.length === 10
+        ) {
+
+          digits =
+            "1" + digits;
+
+        }
+
+
+        return digits;
+
+      };
 
 
       const requestedPhone =
-        normalizePhone(req.body.phone);
+        normalizePhone(
+          req.body.phone
+        );
 
 
       const allowedPhone =
@@ -657,33 +845,48 @@ app.post(
         );
 
 
-      // ====================================
-      // ONLY ALLOW AUTHORIZED DEMO NUMBER
-      // ====================================
-
       if (
         !requestedPhone ||
         requestedPhone !== allowedPhone
       ) {
 
         return res.status(403).json({
+
           success: false,
+
           error:
             "This phone number is not authorized for the demo."
+
         });
 
       }
 
 
-      // ====================================
-      // TWILIO REQUEST
-      // ====================================
+      const appointmentDate =
+        String(
+          req.body.date ||
+          req.body.appointmentDate ||
+          "[date]"
+        );
+
+
+      const appointmentTime =
+        String(
+          req.body.time ||
+          req.body.appointmentTime ||
+          "[time]"
+        );
+
+
+      const messageBody =
+        `Business Pro SMS: Your appointment is confirmed for ${appointmentDate} at ${appointmentTime}. Reply STOP to opt out.`;
+
 
       const twilioURL =
         `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
 
 
-      const auth =
+      const authorization =
         Buffer.from(
           `${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`
         ).toString("base64");
@@ -701,8 +904,46 @@ app.post(
 
       formData.append(
         "Body",
-        "sms_appointment_reminders"
+        messageBody
       );
+
+
+      if (
+        TWILIO_MESSAGING_SERVICE_SID
+      ) {
+
+        formData.append(
+          "MessagingServiceSid",
+          TWILIO_MESSAGING_SERVICE_SID
+        );
+
+      } else {
+
+        const senderNumber =
+          TWILIO_PHONE_NUMBER ||
+          TWILIO_FROM_NUMBER;
+
+
+        if (!senderNumber) {
+
+          return res.status(500).json({
+
+            success: false,
+
+            error:
+              "A Twilio sender number or Messaging Service SID has not been configured."
+
+          });
+
+        }
+
+
+        formData.append(
+          "From",
+          senderNumber
+        );
+
+      }
 
 
       const twilioResponse =
@@ -715,7 +956,7 @@ app.post(
             headers: {
 
               Authorization:
-                `Basic ${auth}`,
+                `Basic ${authorization}`,
 
               "Content-Type":
                 "application/x-www-form-urlencoded"
@@ -733,14 +974,10 @@ app.post(
         await twilioResponse.json();
 
 
-      // ====================================
-      // TWILIO ERROR
-      // ====================================
-
       if (!twilioResponse.ok) {
 
         console.error(
-          "Twilio error:",
+          "Twilio SMS error:",
           result
         );
 
@@ -760,12 +997,8 @@ app.post(
       }
 
 
-      // ====================================
-      // SUCCESS
-      // ====================================
-
       console.log(
-        "SMS sent successfully:",
+        "SMS sent:",
         result.sid
       );
 
@@ -803,18 +1036,21 @@ app.post(
 );
 
 
-// ========================================
+// ============================================================
 // START SERVER
-// ========================================
+// ============================================================
 
 const PORT =
   process.env.PORT || 3000;
 
 
-app.listen(PORT, () => {
+app.listen(
+  PORT,
+  () => {
 
-  console.log(
-    `Village Barber SMS server running on port ${PORT}`
-  );
+    console.log(
+      `Business Pro SMS server running on port ${PORT}`
+    );
 
-});
+  }
+);
