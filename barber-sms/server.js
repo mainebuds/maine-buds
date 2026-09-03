@@ -878,8 +878,23 @@ app.post(
         );
 
 
+      const shopName =
+        String(
+          req.body.shopName ||
+          "The Village Barber"
+        ).trim() ||
+        "The Village Barber";
+
+
+      const barberName =
+        String(
+          req.body.barber ||
+          ""
+        ).trim();
+
+
       const messageBody =
-        `Business Pro SMS: Your appointment is confirmed for ${appointmentDate} at ${appointmentTime}. Reply STOP to opt out.`;
+        `${shopName}: Your appointment${barberName ? ` with ${barberName}` : ""} is confirmed for ${appointmentDate} at ${appointmentTime}. Reply STOP to opt out.`;
 
 
       const twilioURL =
