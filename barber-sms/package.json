@@ -1,13 +1,14 @@
 {
   "name": "village-barber-sms",
   "version": "1.0.0",
-  "description": "SMS backend for The Village Barber demo",
+  "description": "Backend services for Business Pro Local and The Village Barber demo",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "express": "^5.1.0",
+    "stripe": "^22.6.1",
     "twilio": "^5.10.4"
   }
 }
