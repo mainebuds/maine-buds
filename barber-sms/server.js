@@ -1,4 +1,5 @@
 const express = require("express");
+const Stripe = require("stripe");
 
 const app = express();
 
@@ -1042,6 +1043,277 @@ app.post(
 
         error:
           "The confirmation text could not be sent."
+
+      });
+
+    }
+
+  }
+);
+
+
+// ============================================================
+// BUSINESS PRO LOCAL STRIPE CHECKOUT
+// ============================================================
+
+const BUSINESS_PRO_PLANS = {
+
+  basic: {
+    name: "Basic",
+    setupAmount: 99500,
+    monthlyAmount: 4900,
+    advertisingRate: "$0.75 per click",
+    advertisingMinimum: "$25 monthly minimum"
+  },
+
+  professional: {
+    name: "Professional",
+    setupAmount: 149500,
+    monthlyAmount: 7900,
+    advertisingRate: "$1.25 per click",
+    advertisingMinimum: "$50 monthly minimum"
+  },
+
+  "business-pro": {
+    name: "Business Pro",
+    setupAmount: 249500,
+    monthlyAmount: 14900,
+    advertisingRate: "$2.00 per click",
+    advertisingMinimum: "$75 monthly minimum"
+  }
+
+};
+
+
+function cleanCheckoutValue(value, maxLength = 500) {
+
+  return String(value || "")
+    .trim()
+    .slice(0, maxLength);
+
+}
+
+
+app.post(
+  "/create-checkout-session",
+  async (req, res) => {
+
+    try {
+
+      const stripeSecretKey =
+        process.env.STRIPE_SECRET_KEY;
+
+
+      if (!stripeSecretKey) {
+
+        return res.status(500).json({
+
+          success: false,
+
+          error:
+            "Stripe server configuration is incomplete."
+
+        });
+
+      }
+
+
+      const stripe =
+        new Stripe(stripeSecretKey);
+
+
+      const planKey =
+        cleanCheckoutValue(
+          req.body.plan,
+          50
+        );
+
+
+      const plan =
+        BUSINESS_PRO_PLANS[
+          planKey
+        ];
+
+
+      if (!plan) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Please choose a valid Business Pro Local package."
+
+        });
+
+      }
+
+
+      const businessName =
+        cleanCheckoutValue(
+          req.body.businessName,
+          200
+        );
+
+
+      const ownerName =
+        cleanCheckoutValue(
+          req.body.ownerName,
+          200
+        );
+
+
+      const phone =
+        cleanCheckoutValue(
+          req.body.phone,
+          100
+        );
+
+
+      const email =
+        cleanCheckoutValue(
+          req.body.email,
+          320
+        );
+
+
+      const businessAddress =
+        cleanCheckoutValue(
+          req.body.businessAddress,
+          300
+        );
+
+
+      const businessNotes =
+        cleanCheckoutValue(
+          req.body.businessNotes,
+          500
+        );
+
+
+      const advertising =
+        req.body.advertising === "on"
+          ? "ON"
+          : "OFF";
+
+
+      if (
+        !businessName ||
+        !ownerName ||
+        !phone ||
+        !email
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Business name, contact name, phone number, and email address are required."
+
+        });
+
+      }
+
+
+      const metadata = {
+        businessName,
+        ownerName,
+        phone,
+        email,
+        businessAddress,
+        plan: plan.name,
+        planKey,
+        advertising,
+        advertisingRate:
+          advertising === "ON"
+            ? plan.advertisingRate
+            : "Not selected",
+        advertisingMinimum:
+          advertising === "ON"
+            ? plan.advertisingMinimum
+            : "Not selected",
+        businessNotes
+      };
+
+
+      const session =
+        await stripe.checkout.sessions.create({
+
+          mode: "subscription",
+
+          customer_email:
+            email,
+
+          line_items: [
+
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name:
+                    `Business Pro Local ${plan.name} Website Setup`
+                },
+                unit_amount:
+                  plan.setupAmount
+              },
+              quantity: 1
+            },
+
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name:
+                    `Business Pro Local ${plan.name} Monthly Service`
+                },
+                unit_amount:
+                  plan.monthlyAmount,
+                recurring: {
+                  interval: "month"
+                }
+              },
+              quantity: 1
+            }
+
+          ],
+
+          metadata,
+
+          subscription_data: {
+            metadata
+          },
+
+          success_url:
+            "https://villagebarber.businessprolocal.com/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}",
+
+          cancel_url:
+            "https://villagebarber.businessprolocal.com/join.html?payment=cancelled"
+
+        });
+
+
+      return res.json({
+        success: true,
+        url: session.url
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "Stripe checkout error:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          error.message ||
+          "The Stripe checkout session could not be created."
 
       });
 
