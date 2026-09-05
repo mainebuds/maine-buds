@@ -343,6 +343,8 @@ async function sendBusinessProSignupEmails(
 
     "Business Address: " +
       (metadata.businessAddress || ""),
+        "Business Notes: " +
+      (metadata.businessNotes || ""),
 
     "",
     "Stripe Customer: " +
