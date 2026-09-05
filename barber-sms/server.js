@@ -8,25 +8,241 @@ const app = express();
 // BUSINESS PRO LOCAL STRIPE PAYMENT WEBHOOK
 // ============================================================
 
-async function sendBusinessProSignupEmail(
+function formatBusinessProMoney(amountInCents) {
+
+  return `$${(
+    Number(amountInCents || 0) / 100
+  ).toLocaleString(
+    "en-US",
+    {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    }
+  )}`;
+
+}
+
+
+function getStripeObjectId(value) {
+
+  if (!value) {
+    return "";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return value.id || "";
+
+}
+
+
+async function sendResendEmail({
+  to,
+  subject,
+  text,
+  idempotencyKey
+}) {
+
+  const {
+    RESEND_API_KEY,
+    RESEND_FROM_EMAIL
+  } = process.env;
+
+
+  if (!RESEND_API_KEY) {
+
+    throw new Error(
+      "RESEND_API_KEY is not configured."
+    );
+
+  }
+
+
+  const fromAddress =
+    RESEND_FROM_EMAIL ||
+    "Business Pro Local <onboarding@resend.dev>";
+
+
+  const resendResponse =
+    await fetch(
+      "https://api.resend.com/emails",
+      {
+
+        method: "POST",
+
+        headers: {
+
+          Authorization:
+            `Bearer ${RESEND_API_KEY}`,
+
+          "Content-Type":
+            "application/json",
+
+          "Idempotency-Key":
+            idempotencyKey
+
+        },
+
+        body:
+          JSON.stringify({
+
+            from:
+              fromAddress,
+
+            to: [
+              to
+            ],
+
+            subject,
+
+            text
+
+          })
+
+      }
+    );
+
+
+  const resendResult =
+    await resendResponse.json();
+
+
+  if (!resendResponse.ok) {
+
+    console.error(
+      "Resend email error:",
+      resendResult
+    );
+
+
+    throw new Error(
+      resendResult.message ||
+      "Resend rejected the email."
+    );
+
+  }
+
+
+  return resendResult;
+
+}
+
+
+async function saveBusinessProBillingProfile(
   stripe,
+  session
+) {
+
+  const metadata =
+    session.metadata || {};
+
+
+  const customerId =
+    getStripeObjectId(
+      session.customer
+    );
+
+
+  if (!customerId) {
+    return;
+  }
+
+
+  let paymentMethodId =
+    "";
+
+
+  const paymentIntentId =
+    getStripeObjectId(
+      session.payment_intent
+    );
+
+
+  if (paymentIntentId) {
+
+    const paymentIntent =
+      await stripe.paymentIntents.retrieve(
+        paymentIntentId
+      );
+
+
+    paymentMethodId =
+      getStripeObjectId(
+        paymentIntent.payment_method
+      );
+
+  }
+
+
+  const customerUpdate = {
+
+    metadata: {
+
+      businessProCustomer:
+        "yes",
+
+      businessProCheckoutSessionId:
+        session.id,
+
+      businessProPlanKey:
+        metadata.planKey || "",
+
+      businessProPlan:
+        metadata.plan || "",
+
+      businessProBusinessName:
+        metadata.businessName || "",
+
+      businessProOwnerName:
+        metadata.ownerName || "",
+
+      businessProAdvertising:
+        metadata.advertising || "OFF",
+
+      businessProSetupPaid:
+        "yes"
+
+    }
+
+  };
+
+
+  if (paymentMethodId) {
+
+    customerUpdate.invoice_settings = {
+
+      default_payment_method:
+        paymentMethodId
+
+    };
+
+  }
+
+
+  await stripe.customers.update(
+    customerId,
+    customerUpdate
+  );
+
+}
+
+
+async function sendBusinessProSignupEmails(
   session,
   eventId
 ) {
 
   const {
-    RESEND_API_KEY,
     SIGNUP_NOTIFICATION_EMAIL
   } = process.env;
 
 
-  if (
-    !RESEND_API_KEY ||
-    !SIGNUP_NOTIFICATION_EMAIL
-  ) {
+  if (!SIGNUP_NOTIFICATION_EMAIL) {
 
     throw new Error(
-      "Signup email configuration is incomplete."
+      "SIGNUP_NOTIFICATION_EMAIL is not configured."
     );
 
   }
@@ -52,26 +268,21 @@ async function sendBusinessProSignupEmail(
 
 
   const setupPrice =
-    `$${(
-      plan.setupAmount / 100
-    ).toLocaleString(
-      "en-US",
-      {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      }
-    )}`;
+    formatBusinessProMoney(
+      plan.setupAmount
+    );
+
+
+  const chargedToday =
+    formatBusinessProMoney(
+      session.amount_total ||
+      plan.setupAmount
+    );
 
 
   const monthlyPrice =
-    `$${(
-      plan.monthlyAmount / 100
-    ).toLocaleString(
-      "en-US",
-      {
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      }
+    `${formatBusinessProMoney(
+      plan.monthlyAmount
     )}/month`;
 
 
@@ -79,18 +290,23 @@ async function sendBusinessProSignupEmail(
     metadata.advertising === "ON";
 
 
-  const emailLines = [
+  const adminLines = [
 
+    "New Business Pro Local Signup",
+    "",
     "Business: " +
       (metadata.businessName || ""),
 
     "Package: " +
       plan.name,
 
-    "Setup: " +
+    "Setup Fee: " +
       setupPrice,
 
-    "Monthly: " +
+    "Charged Today: " +
+      chargedToday,
+
+    "Monthly Service After Launch: " +
       monthlyPrice,
 
     "Advertising: " +
@@ -101,12 +317,12 @@ async function sendBusinessProSignupEmail(
 
   if (advertisingOn) {
 
-    emailLines.push(
+    adminLines.push(
       "Advertising Rate: " +
         plan.advertisingRate
     );
 
-    emailLines.push(
+    adminLines.push(
       "Advertising Minimum: " +
         plan.advertisingMinimum
     );
@@ -114,8 +330,8 @@ async function sendBusinessProSignupEmail(
   }
 
 
-  emailLines.push(
-
+  adminLines.push(
+    "",
     "Customer: " +
       (metadata.ownerName || ""),
 
@@ -123,78 +339,144 @@ async function sendBusinessProSignupEmail(
       (metadata.phone || ""),
 
     "Email: " +
-      (metadata.email || "")
+      (metadata.email || ""),
 
+    "Business Address: " +
+      (metadata.businessAddress || ""),
+
+    "",
+    "Stripe Customer: " +
+      getStripeObjectId(
+        session.customer
+      ),
+
+    "Checkout Session: " +
+      session.id,
+
+    "",
+    "The customer's payment method was saved securely in Stripe for future monthly service billing after website launch."
   );
 
 
-  const resendResponse =
-    await fetch(
-      "https://api.resend.com/emails",
-      {
-
-        method: "POST",
-
-        headers: {
-
-          Authorization:
-            `Bearer ${RESEND_API_KEY}`,
-
-          "Content-Type":
-            "application/json",
-
-          "Idempotency-Key":
-            `business-pro-signup/${session.id}`
-
-        },
-
-        body:
-          JSON.stringify({
-
-            from:
-              "Business Pro Local <onboarding@resend.dev>",
-
-            to: [
-              SIGNUP_NOTIFICATION_EMAIL
-            ],
-
-            subject:
-              "New Business Pro Local Signup",
-
-            text:
-              emailLines.join("\n")
-
-          })
-
-      }
+  const featureLines =
+    plan.features.map(
+      feature =>
+        `• ${feature}`
     );
 
 
-  const resendResult =
-    await resendResponse.json();
+  const customerLines = [
+
+    `Hello ${metadata.ownerName || "there"},`,
+    "",
+    "Thank you for choosing Business Pro Local. Your setup payment was completed successfully.",
+    "",
+    `Business: ${metadata.businessName || ""}`,
+    `Package: ${plan.name}`,
+    "",
+    `Your ${plan.name} package includes:`,
+    ...featureLines,
+    "",
+    "Advertising Network: " +
+      (advertisingOn ? "ON" : "OFF")
+
+  ];
 
 
-  if (!resendResponse.ok) {
+  if (advertisingOn) {
 
-    console.error(
-      "Resend email error:",
-      resendResult
-    );
-
-
-    throw new Error(
-      resendResult.message ||
-      "Resend rejected the signup email."
+    customerLines.push(
+      `Advertising Rate: ${plan.advertisingRate}`,
+      `Advertising Minimum: ${plan.advertisingMinimum}`
     );
 
   }
 
 
+  customerLines.push(
+    "",
+    "PAYMENT",
+    `Setup fee charged today: ${chargedToday}`,
+    `Monthly service: ${monthlyPrice}`,
+    "No monthly service fee is charged during website development.",
+    "Monthly service begins on the date your website is approved and launched publicly.",
+    "Your first monthly service charge will occur one month after launch and will cover your first completed month of service. Monthly billing will continue each month thereafter.",
+    "",
+    "WHAT HAPPENS NEXT",
+    "Business Pro Local will begin building your website after signup.",
+    "Your website and any owner/shop interface included with your package will typically be completed and set up within 7–10 days. If we need additional photos, services, pricing, hours, or other business information, we will contact you during development.",
+    "",
+    "PRE-LAUNCH CANCELLATION & REFUND",
+    "If you decide not to move forward before approving your website for public launch, you may cancel and receive a 50% refund of your website setup fee. The remaining 50% is retained by Business Pro Local for design, development, setup, and other work already completed. Once you approve the website for public launch, the setup fee becomes non-refundable except where required by law.",
+    "",
+    "Your payment method is stored securely by Stripe for future monthly service billing under the terms of your Business Pro Local service agreement.",
+    "",
+    "Thank you,",
+    "Business Pro Local"
+  );
+
+
+  const adminResult =
+    await sendResendEmail({
+
+      to:
+        SIGNUP_NOTIFICATION_EMAIL,
+
+      subject:
+        "New Business Pro Local Signup",
+
+      text:
+        adminLines.join("\n"),
+
+      idempotencyKey:
+        `business-pro-admin-${session.id}`
+
+    });
+
+
+  const customerEmail =
+    String(
+      metadata.email || ""
+    ).trim();
+
+
+  if (!customerEmail) {
+
+    throw new Error(
+      "The completed checkout does not contain a customer email address."
+    );
+
+  }
+
+
+  const customerResult =
+    await sendResendEmail({
+
+      to:
+        customerEmail,
+
+      subject:
+        "Business Pro Local — Order & Payment Confirmation",
+
+      text:
+        customerLines.join("\n"),
+
+      idempotencyKey:
+        `business-pro-customer-${session.id}`
+
+    });
+
+
   console.log(
-    "Signup email sent:",
-    resendResult.id,
-    "Stripe event:",
-    eventId
+    "Signup emails sent:",
+    {
+      adminEmailId:
+        adminResult.id,
+      customerEmailId:
+        customerResult.id,
+      stripeEvent:
+        eventId
+    }
   );
 
 }
@@ -291,13 +573,18 @@ app.post(
             );
 
 
+          await saveBusinessProBillingProfile(
+            stripe,
+            latestSession
+          );
+
+
           if (
             latestSession.metadata
-              ?.signupEmailSent !== "yes"
+              ?.signupEmailsSent !== "yes"
           ) {
 
-            await sendBusinessProSignupEmail(
-              stripe,
+            await sendBusinessProSignupEmails(
               latestSession,
               event.id
             );
@@ -311,10 +598,10 @@ app.post(
 
                   ...latestSession.metadata,
 
-                  signupEmailSent:
+                  signupEmailsSent:
                     "yes",
 
-                  signupEmailSentAt:
+                  signupEmailsSentAt:
                     new Date().toISOString()
 
                 }
@@ -1409,6 +1696,48 @@ app.post(
 // BUSINESS PRO LOCAL STRIPE CHECKOUT
 // ============================================================
 
+const BASIC_FEATURES = [
+  "Mobile-friendly business website",
+  "Business information, photos, contact details, address, and hours",
+  "Services and pricing",
+  "Google Maps and directions",
+  "Links to existing social media accounts",
+  "Website hosting",
+  "Security and backups",
+  "Technical support",
+  "Website maintenance and reasonable minor updates"
+];
+
+
+const PROFESSIONAL_FEATURES = [
+  ...BASIC_FEATURES,
+  "Interactive customer features",
+  "Appointment booking where appropriate",
+  "Service or employee selection",
+  "Quote or estimate requests",
+  "Customer intake forms",
+  "Restaurant takeout or order-ahead options where appropriate",
+  "Photo galleries",
+  "Owner management interface",
+  "Schedule and availability management",
+  "Vacation-day or day-off controls",
+  "Business photo and information updates"
+];
+
+
+const BUSINESS_PRO_FEATURES = [
+  ...PROFESSIONAL_FEATURES,
+  "Mobile storefront",
+  "Product listings with photos, descriptions, and pricing",
+  "Shopping cart and customer ordering",
+  "Online purchasing where appropriate",
+  "Pickup, delivery, or shipping options where appropriate",
+  "Inventory management",
+  "Order management",
+  "Promotions"
+];
+
+
 const BUSINESS_PRO_PLANS = {
 
   basic: {
@@ -1416,7 +1745,8 @@ const BUSINESS_PRO_PLANS = {
     setupAmount: 99500,
     monthlyAmount: 4900,
     advertisingRate: "$0.75 per click",
-    advertisingMinimum: "$25 monthly minimum"
+    advertisingMinimum: "$25 monthly minimum",
+    features: BASIC_FEATURES
   },
 
   professional: {
@@ -1424,7 +1754,8 @@ const BUSINESS_PRO_PLANS = {
     setupAmount: 149500,
     monthlyAmount: 7900,
     advertisingRate: "$1.25 per click",
-    advertisingMinimum: "$50 monthly minimum"
+    advertisingMinimum: "$50 monthly minimum",
+    features: PROFESSIONAL_FEATURES
   },
 
   "business-pro": {
@@ -1432,17 +1763,95 @@ const BUSINESS_PRO_PLANS = {
     setupAmount: 249500,
     monthlyAmount: 14900,
     advertisingRate: "$2.00 per click",
-    advertisingMinimum: "$75 monthly minimum"
+    advertisingMinimum: "$75 monthly minimum",
+    features: BUSINESS_PRO_FEATURES
   }
 
 };
 
 
-function cleanCheckoutValue(value, maxLength = 500) {
+function cleanCheckoutValue(
+  value,
+  maxLength = 500
+) {
 
   return String(value || "")
     .trim()
     .slice(0, maxLength);
+
+}
+
+
+function addOneCalendarMonth(
+  inputDate
+) {
+
+  const date =
+    new Date(inputDate);
+
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+
+    throw new Error(
+      "Invalid launch date."
+    );
+
+  }
+
+
+  const year =
+    date.getUTCFullYear();
+
+  const month =
+    date.getUTCMonth();
+
+  const day =
+    date.getUTCDate();
+
+
+  const firstOfTargetMonth =
+    new Date(
+      Date.UTC(
+        year,
+        month + 1,
+        1,
+        date.getUTCHours(),
+        date.getUTCMinutes(),
+        date.getUTCSeconds()
+      )
+    );
+
+
+  const targetYear =
+    firstOfTargetMonth.getUTCFullYear();
+
+  const targetMonth =
+    firstOfTargetMonth.getUTCMonth();
+
+
+  const lastDayOfTargetMonth =
+    new Date(
+      Date.UTC(
+        targetYear,
+        targetMonth + 1,
+        0
+      )
+    ).getUTCDate();
+
+
+  firstOfTargetMonth.setUTCDate(
+    Math.min(
+      day,
+      lastDayOfTargetMonth
+    )
+  );
+
+
+  return firstOfTargetMonth;
 
 }
 
@@ -1472,7 +1881,9 @@ app.post(
 
 
       const stripe =
-        new Stripe(stripeSecretKey);
+        new Stripe(
+          stripeSecretKey
+        );
 
 
       const planKey =
@@ -1586,17 +1997,32 @@ app.post(
           advertising === "ON"
             ? plan.advertisingMinimum
             : "Not selected",
-        businessNotes
+        businessNotes,
+        billingPolicy:
+          "Setup fee only at signup. Monthly service begins at launch and first bills one month after launch."
       };
 
 
       const session =
         await stripe.checkout.sessions.create({
 
-          mode: "subscription",
+          mode:
+            "payment",
 
           customer_email:
             email,
+
+          customer_creation:
+            "always",
+
+          payment_method_types: [
+            "card"
+          ],
+
+          payment_intent_data: {
+            setup_future_usage:
+              "off_session"
+          },
 
           line_items: [
 
@@ -1611,31 +2037,11 @@ app.post(
                   plan.setupAmount
               },
               quantity: 1
-            },
-
-            {
-              price_data: {
-                currency: "usd",
-                product_data: {
-                  name:
-                    `Business Pro Local ${plan.name} Monthly Service`
-                },
-                unit_amount:
-                  plan.monthlyAmount,
-                recurring: {
-                  interval: "month"
-                }
-              },
-              quantity: 1
             }
 
           ],
 
           metadata,
-
-          subscription_data: {
-            metadata
-          },
 
           success_url:
             "https://villagebarber.businessprolocal.com/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}",
@@ -1667,6 +2073,493 @@ app.post(
         error:
           error.message ||
           "The Stripe checkout session could not be created."
+
+      });
+
+    }
+
+  }
+);
+
+
+// ============================================================
+// START MONTHLY SERVICE AFTER WEBSITE LAUNCH
+// ============================================================
+
+app.post(
+  "/start-monthly-service",
+  async (req, res) => {
+
+    try {
+
+      const {
+        STRIPE_SECRET_KEY,
+        MONTHLY_BILLING_ADMIN_KEY
+      } = process.env;
+
+
+      if (
+        !STRIPE_SECRET_KEY ||
+        !MONTHLY_BILLING_ADMIN_KEY
+      ) {
+
+        return res.status(500).json({
+
+          success: false,
+
+          error:
+            "Monthly billing configuration is incomplete."
+
+        });
+
+      }
+
+
+      const providedAdminKey =
+        String(
+          req.headers[
+            "x-business-pro-admin-key"
+          ] || ""
+        );
+
+
+      if (
+        providedAdminKey !==
+        MONTHLY_BILLING_ADMIN_KEY
+      ) {
+
+        return res.status(403).json({
+
+          success: false,
+
+          error:
+            "Not authorized."
+
+        });
+
+      }
+
+
+      const checkoutSessionId =
+        cleanCheckoutValue(
+          req.body.checkoutSessionId,
+          200
+        );
+
+
+      if (!checkoutSessionId) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "checkoutSessionId is required."
+
+        });
+
+      }
+
+
+      const stripe =
+        new Stripe(
+          STRIPE_SECRET_KEY
+        );
+
+
+      const session =
+        await stripe.checkout.sessions.retrieve(
+          checkoutSessionId
+        );
+
+
+      if (
+        session.payment_status !==
+        "paid"
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "The setup payment has not been completed."
+
+        });
+
+      }
+
+
+      const metadata =
+        session.metadata || {};
+
+
+      const plan =
+        BUSINESS_PRO_PLANS[
+          metadata.planKey
+        ];
+
+
+      if (!plan) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "The checkout session does not contain a valid Business Pro Local package."
+
+        });
+
+      }
+
+
+      const customerId =
+        getStripeObjectId(
+          session.customer
+        );
+
+
+      if (!customerId) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "The checkout session does not contain a Stripe customer."
+
+        });
+
+      }
+
+
+      const customer =
+        await stripe.customers.retrieve(
+          customerId
+        );
+
+
+      if (customer.deleted) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "The Stripe customer is no longer available."
+
+        });
+
+      }
+
+
+      const existingSubscriptionId =
+        customer.metadata
+          ?.businessProMonthlySubscriptionId;
+
+
+      if (existingSubscriptionId) {
+
+        try {
+
+          const existingSubscription =
+            await stripe.subscriptions.retrieve(
+              existingSubscriptionId
+            );
+
+
+          if (
+            [
+              "active",
+              "trialing",
+              "past_due",
+              "unpaid"
+            ].includes(
+              existingSubscription.status
+            )
+          ) {
+
+            return res.json({
+
+              success: true,
+
+              alreadyStarted:
+                true,
+
+              subscriptionId:
+                existingSubscription.id,
+
+              status:
+                existingSubscription.status,
+
+              firstBillingDate:
+                customer.metadata
+                  ?.businessProFirstBillingDate ||
+                ""
+
+            });
+
+          }
+
+        } catch (error) {
+
+          console.warn(
+            "Existing subscription lookup failed:",
+            error.message
+          );
+
+        }
+
+      }
+
+
+      let paymentMethodId =
+        getStripeObjectId(
+          customer.invoice_settings
+            ?.default_payment_method
+        );
+
+
+      if (!paymentMethodId) {
+
+        const paymentIntentId =
+          getStripeObjectId(
+            session.payment_intent
+          );
+
+
+        if (paymentIntentId) {
+
+          const paymentIntent =
+            await stripe.paymentIntents.retrieve(
+              paymentIntentId
+            );
+
+
+          paymentMethodId =
+            getStripeObjectId(
+              paymentIntent.payment_method
+            );
+
+        }
+
+      }
+
+
+      if (!paymentMethodId) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "No saved payment method is available for monthly billing."
+
+        });
+
+      }
+
+
+      const requestedLaunchDate =
+        cleanCheckoutValue(
+          req.body.launchDate,
+          100
+        );
+
+
+      const launchDate =
+        requestedLaunchDate
+          ? new Date(
+              requestedLaunchDate
+            )
+          : new Date();
+
+
+      if (
+        Number.isNaN(
+          launchDate.getTime()
+        )
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "launchDate must be a valid date."
+
+        });
+
+      }
+
+
+      const firstBillingDate =
+        addOneCalendarMonth(
+          launchDate
+        );
+
+
+      const recurringPrice =
+        await stripe.prices.create(
+          {
+
+            currency:
+              "usd",
+
+            unit_amount:
+              plan.monthlyAmount,
+
+            recurring: {
+              interval:
+                "month"
+            },
+
+            product_data: {
+              name:
+                `Business Pro Local ${plan.name} Monthly Service`
+            },
+
+            metadata: {
+              planKey:
+                metadata.planKey || "",
+              checkoutSessionId:
+                session.id,
+              businessName:
+                metadata.businessName || ""
+            }
+
+          },
+          {
+            idempotencyKey:
+              `business-pro-monthly-price-${session.id}`
+          }
+        );
+
+
+      const subscription =
+        await stripe.subscriptions.create(
+          {
+
+            customer:
+              customerId,
+
+            items: [
+              {
+                price:
+                  recurringPrice.id
+              }
+            ],
+
+            default_payment_method:
+              paymentMethodId,
+
+            collection_method:
+              "charge_automatically",
+
+            trial_end:
+              Math.floor(
+                firstBillingDate.getTime() /
+                1000
+              ),
+
+            metadata: {
+              businessName:
+                metadata.businessName || "",
+              ownerName:
+                metadata.ownerName || "",
+              email:
+                metadata.email || "",
+              plan:
+                plan.name,
+              planKey:
+                metadata.planKey || "",
+              advertising:
+                metadata.advertising || "OFF",
+              checkoutSessionId:
+                session.id,
+              launchDate:
+                launchDate.toISOString(),
+              firstBillingDate:
+                firstBillingDate.toISOString(),
+              billingPolicy:
+                "First monthly charge occurs one month after launch and covers the first completed month of service."
+            },
+
+            description:
+              `Business Pro Local ${plan.name} monthly website service`
+
+          },
+          {
+            idempotencyKey:
+              `business-pro-monthly-subscription-${session.id}`
+          }
+        );
+
+
+      await stripe.customers.update(
+        customerId,
+        {
+
+          metadata: {
+
+            ...customer.metadata,
+
+            businessProMonthlySubscriptionId:
+              subscription.id,
+
+            businessProLaunchDate:
+              launchDate.toISOString(),
+
+            businessProFirstBillingDate:
+              firstBillingDate.toISOString()
+
+          }
+
+        }
+      );
+
+
+      return res.json({
+
+        success: true,
+
+        alreadyStarted:
+          false,
+
+        subscriptionId:
+          subscription.id,
+
+        status:
+          subscription.status,
+
+        launchDate:
+          launchDate.toISOString(),
+
+        firstBillingDate:
+          firstBillingDate.toISOString(),
+
+        monthlyAmount:
+          plan.monthlyAmount
+
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "Start monthly service error:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          error.message ||
+          "Monthly service could not be started."
 
       });
 
