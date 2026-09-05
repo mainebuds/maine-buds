@@ -5,6 +5,359 @@ const app = express();
 
 
 // ============================================================
+// BUSINESS PRO LOCAL STRIPE PAYMENT WEBHOOK
+// ============================================================
+
+async function sendBusinessProSignupEmail(
+  stripe,
+  session,
+  eventId
+) {
+
+  const {
+    RESEND_API_KEY,
+    SIGNUP_NOTIFICATION_EMAIL
+  } = process.env;
+
+
+  if (
+    !RESEND_API_KEY ||
+    !SIGNUP_NOTIFICATION_EMAIL
+  ) {
+
+    throw new Error(
+      "Signup email configuration is incomplete."
+    );
+
+  }
+
+
+  const metadata =
+    session.metadata || {};
+
+
+  const plan =
+    BUSINESS_PRO_PLANS[
+      metadata.planKey
+    ];
+
+
+  if (!plan) {
+
+    throw new Error(
+      "The completed checkout does not contain a valid Business Pro Local package."
+    );
+
+  }
+
+
+  const setupPrice =
+    `$${(
+      plan.setupAmount / 100
+    ).toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }
+    )}`;
+
+
+  const monthlyPrice =
+    `$${(
+      plan.monthlyAmount / 100
+    ).toLocaleString(
+      "en-US",
+      {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }
+    )}/month`;
+
+
+  const advertisingOn =
+    metadata.advertising === "ON";
+
+
+  const emailLines = [
+
+    "Business: " +
+      (metadata.businessName || ""),
+
+    "Package: " +
+      plan.name,
+
+    "Setup: " +
+      setupPrice,
+
+    "Monthly: " +
+      monthlyPrice,
+
+    "Advertising: " +
+      (advertisingOn ? "ON" : "OFF")
+
+  ];
+
+
+  if (advertisingOn) {
+
+    emailLines.push(
+      "Advertising Rate: " +
+        plan.advertisingRate
+    );
+
+    emailLines.push(
+      "Advertising Minimum: " +
+        plan.advertisingMinimum
+    );
+
+  }
+
+
+  emailLines.push(
+
+    "Customer: " +
+      (metadata.ownerName || ""),
+
+    "Phone: " +
+      (metadata.phone || ""),
+
+    "Email: " +
+      (metadata.email || "")
+
+  );
+
+
+  const resendResponse =
+    await fetch(
+      "https://api.resend.com/emails",
+      {
+
+        method: "POST",
+
+        headers: {
+
+          Authorization:
+            `Bearer ${RESEND_API_KEY}`,
+
+          "Content-Type":
+            "application/json",
+
+          "Idempotency-Key":
+            `business-pro-signup/${session.id}`
+
+        },
+
+        body:
+          JSON.stringify({
+
+            from:
+              "Business Pro Local <onboarding@resend.dev>",
+
+            to: [
+              SIGNUP_NOTIFICATION_EMAIL
+            ],
+
+            subject:
+              "New Business Pro Local Signup",
+
+            text:
+              emailLines.join("\n")
+
+          })
+
+      }
+    );
+
+
+  const resendResult =
+    await resendResponse.json();
+
+
+  if (!resendResponse.ok) {
+
+    console.error(
+      "Resend email error:",
+      resendResult
+    );
+
+
+    throw new Error(
+      resendResult.message ||
+      "Resend rejected the signup email."
+    );
+
+  }
+
+
+  console.log(
+    "Signup email sent:",
+    resendResult.id,
+    "Stripe event:",
+    eventId
+  );
+
+}
+
+
+app.post(
+  "/stripe-webhook",
+  express.raw({
+    type: "application/json"
+  }),
+  async (req, res) => {
+
+    const {
+      STRIPE_SECRET_KEY,
+      STRIPE_WEBHOOK_SECRET
+    } = process.env;
+
+
+    if (
+      !STRIPE_SECRET_KEY ||
+      !STRIPE_WEBHOOK_SECRET
+    ) {
+
+      return res.status(500).send(
+        "Stripe webhook configuration is incomplete."
+      );
+
+    }
+
+
+    const stripe =
+      new Stripe(
+        STRIPE_SECRET_KEY
+      );
+
+
+    let event;
+
+
+    try {
+
+      const signature =
+        req.headers[
+          "stripe-signature"
+        ];
+
+
+      event =
+        stripe.webhooks.constructEvent(
+          req.body,
+          signature,
+          STRIPE_WEBHOOK_SECRET
+        );
+
+
+    } catch (error) {
+
+      console.error(
+        "Stripe webhook signature error:",
+        error.message
+      );
+
+
+      return res.status(400).send(
+        `Webhook Error: ${error.message}`
+      );
+
+    }
+
+
+    try {
+
+      if (
+        event.type ===
+          "checkout.session.completed" ||
+        event.type ===
+          "checkout.session.async_payment_succeeded"
+      ) {
+
+        const eventSession =
+          event.data.object;
+
+
+        if (
+          event.type ===
+            "checkout.session.async_payment_succeeded" ||
+          eventSession.payment_status ===
+            "paid"
+        ) {
+
+          const latestSession =
+            await stripe.checkout.sessions.retrieve(
+              eventSession.id
+            );
+
+
+          if (
+            latestSession.metadata
+              ?.signupEmailSent !== "yes"
+          ) {
+
+            await sendBusinessProSignupEmail(
+              stripe,
+              latestSession,
+              event.id
+            );
+
+
+            await stripe.checkout.sessions.update(
+              latestSession.id,
+              {
+
+                metadata: {
+
+                  ...latestSession.metadata,
+
+                  signupEmailSent:
+                    "yes",
+
+                  signupEmailSentAt:
+                    new Date().toISOString()
+
+                }
+
+              }
+            );
+
+          }
+
+        }
+
+      }
+
+
+      return res.json({
+        received: true
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "Stripe webhook processing error:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        received: false,
+
+        error:
+          "Stripe webhook processing failed."
+
+      });
+
+    }
+
+  }
+);
+
+
+// ============================================================
 // BODY PARSING
 // ============================================================
 
