@@ -5,648 +5,6 @@ const app = express();
 
 
 // ============================================================
-// BUSINESS PRO LOCAL STRIPE PAYMENT WEBHOOK
-// ============================================================
-
-function formatBusinessProMoney(amountInCents) {
-
-  return `$${(
-    Number(amountInCents || 0) / 100
-  ).toLocaleString(
-    "en-US",
-    {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2
-    }
-  )}`;
-
-}
-
-
-function getStripeObjectId(value) {
-
-  if (!value) {
-    return "";
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  return value.id || "";
-
-}
-
-
-async function sendResendEmail({
-  to,
-  subject,
-  text,
-  idempotencyKey
-}) {
-
-  const {
-    RESEND_API_KEY,
-    RESEND_FROM_EMAIL
-  } = process.env;
-
-
-  if (!RESEND_API_KEY) {
-
-    throw new Error(
-      "RESEND_API_KEY is not configured."
-    );
-
-  }
-
-
-  const fromAddress =
-    RESEND_FROM_EMAIL ||
-    "Business Pro Local <onboarding@resend.dev>";
-
-
-  const resendResponse =
-    await fetch(
-      "https://api.resend.com/emails",
-      {
-
-        method: "POST",
-
-        headers: {
-
-          Authorization:
-            `Bearer ${RESEND_API_KEY}`,
-
-          "Content-Type":
-            "application/json",
-
-          "Idempotency-Key":
-            idempotencyKey
-
-        },
-
-        body:
-          JSON.stringify({
-
-            from:
-              fromAddress,
-
-            to: [
-              to
-            ],
-
-            subject,
-
-            text
-
-          })
-
-      }
-    );
-
-
-  const resendResult =
-    await resendResponse.json();
-
-
-  if (!resendResponse.ok) {
-
-    console.error(
-      "Resend email error:",
-      resendResult
-    );
-
-
-    throw new Error(
-      resendResult.message ||
-      "Resend rejected the email."
-    );
-
-  }
-
-
-  return resendResult;
-
-}
-
-
-async function saveBusinessProBillingProfile(
-  stripe,
-  session
-) {
-
-  const metadata =
-    session.metadata || {};
-
-
-  const customerId =
-    getStripeObjectId(
-      session.customer
-    );
-
-
-  if (!customerId) {
-    return;
-  }
-
-
-  let paymentMethodId =
-    "";
-
-
-  const paymentIntentId =
-    getStripeObjectId(
-      session.payment_intent
-    );
-
-
-  if (paymentIntentId) {
-
-    const paymentIntent =
-      await stripe.paymentIntents.retrieve(
-        paymentIntentId
-      );
-
-
-    paymentMethodId =
-      getStripeObjectId(
-        paymentIntent.payment_method
-      );
-
-  }
-
-
-  const customerUpdate = {
-
-    metadata: {
-
-      businessProCustomer:
-        "yes",
-
-      businessProCheckoutSessionId:
-        session.id,
-
-      businessProPlanKey:
-        metadata.planKey || "",
-
-      businessProPlan:
-        metadata.plan || "",
-
-      businessProBusinessName:
-        metadata.businessName || "",
-
-      businessProOwnerName:
-        metadata.ownerName || "",
-
-      businessProAdvertising:
-        metadata.advertising || "OFF",
-
-      businessProSetupPaid:
-        "yes"
-
-    }
-
-  };
-
-
-  if (paymentMethodId) {
-
-    customerUpdate.invoice_settings = {
-
-      default_payment_method:
-        paymentMethodId
-
-    };
-
-  }
-
-
-  await stripe.customers.update(
-    customerId,
-    customerUpdate
-  );
-
-}
-
-
-async function sendBusinessProSignupEmails(
-  session,
-  eventId
-) {
-
-  const {
-    SIGNUP_NOTIFICATION_EMAIL
-  } = process.env;
-
-
-  if (!SIGNUP_NOTIFICATION_EMAIL) {
-
-    throw new Error(
-      "SIGNUP_NOTIFICATION_EMAIL is not configured."
-    );
-
-  }
-
-
-  const metadata =
-    session.metadata || {};
-
-
-  const plan =
-    BUSINESS_PRO_PLANS[
-      metadata.planKey
-    ];
-
-
-  if (!plan) {
-
-    throw new Error(
-      "The completed checkout does not contain a valid Business Pro Local package."
-    );
-
-  }
-
-
-  const setupPrice =
-    formatBusinessProMoney(
-      plan.setupAmount
-    );
-
-
-  const chargedToday =
-    formatBusinessProMoney(
-      session.amount_total ||
-      plan.setupAmount
-    );
-
-
-  const monthlyPrice =
-    `${formatBusinessProMoney(
-      plan.monthlyAmount
-    )}/month`;
-
-
-  const advertisingOn =
-    metadata.advertising === "ON";
-
-
-  const adminLines = [
-
-    "New Business Pro Local Signup",
-    "",
-    "Business: " +
-      (metadata.businessName || ""),
-
-    "Package: " +
-      plan.name,
-
-    "Setup Fee: " +
-      setupPrice,
-
-    "Charged Today: " +
-      chargedToday,
-
-    "Monthly Service After Launch: " +
-      monthlyPrice,
-
-    "Advertising: " +
-      (advertisingOn ? "ON" : "OFF")
-
-  ];
-
-
-  if (advertisingOn) {
-
-    adminLines.push(
-      "Advertising Rate: " +
-        plan.advertisingRate
-    );
-
-    adminLines.push(
-      "Advertising Minimum: " +
-        plan.advertisingMinimum
-    );
-
-  }
-
-
-  adminLines.push(
-    "",
-    "Customer: " +
-      (metadata.ownerName || ""),
-
-    "Phone: " +
-      (metadata.phone || ""),
-
-    "Email: " +
-      (metadata.email || ""),
-
-    "Business Address: " +
-      (metadata.businessAddress || ""),
-        "Business Notes: " +
-      (metadata.businessNotes || ""),
-
-    "",
-    "Stripe Customer: " +
-      getStripeObjectId(
-        session.customer
-      ),
-
-    "Checkout Session: " +
-      session.id,
-
-    "",
-    "The customer's payment method was saved securely in Stripe for future monthly service billing after website launch."
-  );
-
-
-  const featureLines =
-    plan.features.map(
-      feature =>
-        `• ${feature}`
-    );
-
-
-  const customerLines = [
-
-    `Hello ${metadata.ownerName || "there"},`,
-    "",
-    "Thank you for choosing Business Pro Local. Your setup payment was completed successfully.",
-    "",
-    `Business: ${metadata.businessName || ""}`,
-    `Package: ${plan.name}`,
-    "",
-    `Your ${plan.name} package includes:`,
-    ...featureLines,
-    "",
-    "Advertising Network: " +
-      (advertisingOn ? "ON" : "OFF")
-
-  ];
-
-
-  if (advertisingOn) {
-
-    customerLines.push(
-      `Advertising Rate: ${plan.advertisingRate}`,
-      `Advertising Minimum: ${plan.advertisingMinimum}`
-    );
-
-  }
-
-
-  customerLines.push(
-    "",
-    "PAYMENT",
-    `Setup fee charged today: ${chargedToday}`,
-    `Monthly service: ${monthlyPrice}`,
-    "No monthly service fee is charged during website development.",
-    "Monthly service begins on the date your website is approved and launched publicly.",
-    "Your first monthly service charge will occur one month after launch and will cover your first completed month of service. Monthly billing will continue each month thereafter.",
-    "",
-    "WHAT HAPPENS NEXT",
-    "Business Pro Local will begin building your website after signup.",
-    "Your website and any owner/shop interface included with your package will typically be completed and set up within 7–10 days. If we need additional photos, services, pricing, hours, or other business information, we will contact you during development.",
-    "",
-    "PRE-LAUNCH CANCELLATION & REFUND",
-    "If you decide not to move forward before approving your website for public launch, you may cancel and receive a 50% refund of your website setup fee. The remaining 50% is retained by Business Pro Local for design, development, setup, and other work already completed. Once you approve the website for public launch, the setup fee becomes non-refundable except where required by law.",
-    "",
-    "Your payment method is stored securely by Stripe for future monthly service billing under the terms of your Business Pro Local service agreement.",
-    "",
-    "Thank you,",
-    "Business Pro Local"
-  );
-
-
-  const adminResult =
-    await sendResendEmail({
-
-      to:
-        SIGNUP_NOTIFICATION_EMAIL,
-
-      subject:
-        "New Business Pro Local Signup",
-
-      text:
-        adminLines.join("\n"),
-
-      idempotencyKey:
-        `business-pro-admin-${session.id}`
-
-    });
-
-
-  const customerEmail =
-    String(
-      metadata.email || ""
-    ).trim();
-
-
-  if (!customerEmail) {
-
-    throw new Error(
-      "The completed checkout does not contain a customer email address."
-    );
-
-  }
-
-
-  const customerResult =
-    await sendResendEmail({
-
-      to:
-        customerEmail,
-
-      subject:
-        "Business Pro Local — Order & Payment Confirmation",
-
-      text:
-        customerLines.join("\n"),
-
-      idempotencyKey:
-        `business-pro-customer-${session.id}`
-
-    });
-
-
-  console.log(
-    "Signup emails sent:",
-    {
-      adminEmailId:
-        adminResult.id,
-      customerEmailId:
-        customerResult.id,
-      stripeEvent:
-        eventId
-    }
-  );
-
-}
-
-
-app.post(
-  "/stripe-webhook",
-  express.raw({
-    type: "application/json"
-  }),
-  async (req, res) => {
-
-    const {
-      STRIPE_SECRET_KEY,
-      STRIPE_WEBHOOK_SECRET
-    } = process.env;
-
-
-    if (
-      !STRIPE_SECRET_KEY ||
-      !STRIPE_WEBHOOK_SECRET
-    ) {
-
-      return res.status(500).send(
-        "Stripe webhook configuration is incomplete."
-      );
-
-    }
-
-
-    const stripe =
-      new Stripe(
-        STRIPE_SECRET_KEY
-      );
-
-
-    let event;
-
-
-    try {
-
-      const signature =
-        req.headers[
-          "stripe-signature"
-        ];
-
-
-      event =
-        stripe.webhooks.constructEvent(
-          req.body,
-          signature,
-          STRIPE_WEBHOOK_SECRET
-        );
-
-
-    } catch (error) {
-
-      console.error(
-        "Stripe webhook signature error:",
-        error.message
-      );
-
-
-      return res.status(400).send(
-        `Webhook Error: ${error.message}`
-      );
-
-    }
-
-
-    try {
-
-      if (
-        event.type ===
-          "checkout.session.completed" ||
-        event.type ===
-          "checkout.session.async_payment_succeeded"
-      ) {
-
-        const eventSession =
-          event.data.object;
-
-
-        if (
-          event.type ===
-            "checkout.session.async_payment_succeeded" ||
-          eventSession.payment_status ===
-            "paid"
-        ) {
-
-          const latestSession =
-            await stripe.checkout.sessions.retrieve(
-              eventSession.id
-            );
-
-
-          await saveBusinessProBillingProfile(
-            stripe,
-            latestSession
-          );
-
-
-          if (
-            latestSession.metadata
-              ?.signupEmailsSent !== "yes"
-          ) {
-
-            await sendBusinessProSignupEmails(
-              latestSession,
-              event.id
-            );
-
-
-            await stripe.checkout.sessions.update(
-              latestSession.id,
-              {
-
-                metadata: {
-
-                  ...latestSession.metadata,
-
-                  signupEmailsSent:
-                    "yes",
-
-                  signupEmailsSentAt:
-                    new Date().toISOString()
-
-                }
-
-              }
-            );
-
-          }
-
-        }
-
-      }
-
-
-      return res.json({
-        received: true
-      });
-
-
-    } catch (error) {
-
-      console.error(
-        "Stripe webhook processing error:",
-        error
-      );
-
-
-      return res.status(500).json({
-
-        received: false,
-
-        error:
-          "Stripe webhook processing failed."
-
-      });
-
-    }
-
-  }
-);
-
-
-// ============================================================
 // BODY PARSING
 // ============================================================
 
@@ -1536,8 +894,23 @@ app.post(
         ).trim();
 
 
+      const manageUrl =
+        String(
+          req.body.manageUrl ||
+          ""
+        ).trim();
+
+
+      const lateCancellationHours =
+        Number(req.body.lateCancellationHours) || 24;
+
+
+      const lateCancellationPercent =
+        Number(req.body.lateCancellationPercent) || 20;
+
+
       const messageBody =
-        `${shopName}: Your appointment${barberName ? ` with ${barberName}` : ""} is confirmed for ${appointmentDate} at ${appointmentTime}. Reply STOP to opt out.`;
+        `${shopName}: Your appointment${barberName ? ` with ${barberName}` : ""} is confirmed for ${appointmentDate} at ${appointmentTime}. Cancellations within ${lateCancellationHours} hours have a ${lateCancellationPercent}% fee.${manageUrl ? ` Cancel or reschedule: ${manageUrl}` : ""} Reply STOP to opt out.`;
 
 
       const twilioURL =
@@ -1695,50 +1068,590 @@ app.post(
 
 
 // ============================================================
-// BUSINESS PRO LOCAL STRIPE CHECKOUT
+// SEND APPOINTMENT CANCELLATION / RESCHEDULE SMS
 // ============================================================
 
-const BASIC_FEATURES = [
-  "Mobile-friendly business website",
-  "Business information, photos, contact details, address, and hours",
-  "Services and pricing",
-  "Google Maps and directions",
-  "Links to existing social media accounts",
-  "Website hosting",
-  "Security and backups",
-  "Technical support",
-  "Website maintenance and reasonable minor updates"
-];
+app.post(
+  "/send-cancellation",
+  async (req, res) => {
+
+    try {
+
+      const {
+        TWILIO_ACCOUNT_SID,
+        TWILIO_AUTH_TOKEN,
+        DEMO_ALLOWED_PHONE,
+        TWILIO_MESSAGING_SERVICE_SID,
+        TWILIO_PHONE_NUMBER,
+        TWILIO_FROM_NUMBER
+      } = process.env;
 
 
-const PROFESSIONAL_FEATURES = [
-  ...BASIC_FEATURES,
-  "Interactive customer features",
-  "Appointment booking where appropriate",
-  "Service or employee selection",
-  "Quote or estimate requests",
-  "Customer intake forms",
-  "Restaurant takeout or order-ahead options where appropriate",
-  "Photo galleries",
-  "Owner management interface",
-  "Schedule and availability management",
-  "Vacation-day or day-off controls",
-  "Business photo and information updates"
-];
+      if (
+        !TWILIO_ACCOUNT_SID ||
+        !TWILIO_AUTH_TOKEN ||
+        !DEMO_ALLOWED_PHONE
+      ) {
+
+        return res.status(500).json({
+          success: false,
+          error: "SMS server configuration is incomplete."
+        });
+
+      }
 
 
-const BUSINESS_PRO_FEATURES = [
-  ...PROFESSIONAL_FEATURES,
-  "Mobile storefront",
-  "Product listings with photos, descriptions, and pricing",
-  "Shopping cart and customer ordering",
-  "Online purchasing where appropriate",
-  "Pickup, delivery, or shipping options where appropriate",
-  "Inventory management",
-  "Order management",
-  "Promotions"
-];
+      const normalizePhone = (phone) => {
+        let digits = String(phone || "").replace(/\D/g, "");
+        if (digits.length === 10) digits = "1" + digits;
+        return digits;
+      };
 
+
+      const requestedPhone = normalizePhone(req.body.phone);
+      const allowedPhone = normalizePhone(DEMO_ALLOWED_PHONE);
+
+
+      if (!requestedPhone || requestedPhone !== allowedPhone) {
+
+        return res.status(403).json({
+          success: false,
+          error: "This phone number is not authorized for the demo."
+        });
+
+      }
+
+
+      const messageBody = String(req.body.message || "").trim();
+
+      if (!messageBody) {
+        return res.status(400).json({
+          success: false,
+          error: "A cancellation message is required."
+        });
+      }
+
+
+      const twilioURL =
+        `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+
+
+      const authorization =
+        Buffer.from(
+          `${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`
+        ).toString("base64");
+
+
+      const formData = new URLSearchParams();
+      formData.append("To", DEMO_ALLOWED_PHONE);
+      formData.append("Body", messageBody);
+
+
+      if (TWILIO_MESSAGING_SERVICE_SID) {
+        formData.append("MessagingServiceSid", TWILIO_MESSAGING_SERVICE_SID);
+      } else {
+        const senderNumber = TWILIO_PHONE_NUMBER || TWILIO_FROM_NUMBER;
+
+        if (!senderNumber) {
+          return res.status(500).json({
+            success: false,
+            error: "A Twilio sender number or Messaging Service SID has not been configured."
+          });
+        }
+
+        formData.append("From", senderNumber);
+      }
+
+
+      const twilioResponse = await fetch(
+        twilioURL,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${authorization}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: formData.toString()
+        }
+      );
+
+
+      const result = await twilioResponse.json();
+
+      if (!twilioResponse.ok) {
+        console.error("Twilio cancellation SMS error:", result);
+        return res.status(twilioResponse.status).json({
+          success: false,
+          error: result.message || "Twilio rejected the cancellation SMS request."
+        });
+      }
+
+
+      console.log("Cancellation SMS sent:", result.sid);
+
+      return res.json({
+        success: true,
+        messageSid: result.sid
+      });
+
+
+    } catch (error) {
+
+      console.error("Cancellation SMS server error:", error);
+
+      return res.status(500).json({
+        success: false,
+        error: "The cancellation text could not be sent."
+      });
+
+    }
+
+  }
+);
+
+
+// ============================================================
+// APPOINTMENT STRIPE TEST CHECKOUT + TEST REFUNDS
+// ============================================================
+
+function getStripeTestClient() {
+  const key =
+    process.env.STRIPE_TEST_SECRET_KEY ||
+    process.env.STRIPE_SECRET_KEY ||
+    "";
+
+  if (!key || !key.startsWith("sk_test_")) {
+    throw new Error(
+      "Stripe appointment testing requires a Stripe TEST secret key (sk_test_...)."
+    );
+  }
+
+  return new Stripe(key);
+}
+
+
+function getRequestBaseUrl(req) {
+  const configured = String(process.env.PUBLIC_BASE_URL || "").trim();
+  if (configured) return configured.replace(/\/$/, "");
+
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || req.protocol || "https";
+  return `${protocol}://${req.get("host")}`;
+}
+
+
+function cleanAppointmentValue(value, maxLength = 300) {
+  return String(value || "").trim().slice(0, maxLength);
+}
+
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+
+function moneyFromCents(cents) {
+  return `$${(Number(cents || 0) / 100).toFixed(2)}`;
+}
+
+
+function getAppointmentManageUrl(req, sessionId) {
+  return `${getRequestBaseUrl(req)}/manage-test-appointment?session_id=${encodeURIComponent(sessionId)}`;
+}
+
+
+app.post(
+  "/create-appointment-checkout-session",
+  async (req, res) => {
+    try {
+      const stripe = getStripeTestClient();
+
+      const bookingId = cleanAppointmentValue(req.body.bookingId, 120);
+      const shopName = cleanAppointmentValue(req.body.shopName, 160) || "Barber Shop";
+      const barberName = cleanAppointmentValue(req.body.barberName, 160) || "Barber";
+      const serviceName = cleanAppointmentValue(req.body.serviceName, 160) || "Appointment";
+      const customerName = cleanAppointmentValue(req.body.customerName, 160) || "Customer";
+      const phone = cleanAppointmentValue(req.body.phone, 50);
+      const appointmentDate = cleanAppointmentValue(req.body.appointmentDate, 40);
+      const appointmentTime = cleanAppointmentValue(req.body.appointmentTime, 40);
+      const appointmentTime24 = cleanAppointmentValue(req.body.appointmentTime24, 20);
+      const appointmentStartIso = cleanAppointmentValue(req.body.appointmentStartIso, 80);
+      const smsConsent = req.body.smsConsent ? "yes" : "no";
+      const lateCancellationHours = Math.max(1, Number(req.body.lateCancellationHours) || 24);
+      const lateCancellationPercent = Math.min(100, Math.max(0, Number(req.body.lateCancellationPercent) || 20));
+      const servicePrice = Number(req.body.servicePrice || 0);
+      const amountCents = Math.round(servicePrice * 100);
+
+      if (!bookingId || !phone || !appointmentDate || !appointmentTime || !appointmentStartIso) {
+        return res.status(400).json({
+          success: false,
+          error: "Appointment checkout is missing required booking information."
+        });
+      }
+
+      if (!Number.isFinite(amountCents) || amountCents < 50 || amountCents > 100000) {
+        return res.status(400).json({
+          success: false,
+          error: "The appointment price is not valid for test checkout."
+        });
+      }
+
+      const baseUrl = getRequestBaseUrl(req);
+
+      const metadata = {
+        paymentType: "appointment-test",
+        bookingId,
+        shopName,
+        barberName,
+        serviceName,
+        customerName,
+        phone,
+        appointmentDate,
+        appointmentTime,
+        appointmentTime24,
+        appointmentStartIso,
+        smsConsent,
+        lateCancellationHours: String(lateCancellationHours),
+        lateCancellationPercent: String(lateCancellationPercent)
+      };
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "payment",
+        client_reference_id: bookingId,
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: `${shopName} — ${serviceName}`,
+                description: `${barberName} • ${appointmentDate} at ${appointmentTime}`
+              },
+              unit_amount: amountCents
+            },
+            quantity: 1
+          }
+        ],
+        metadata,
+        payment_intent_data: {
+          metadata
+        },
+        success_url:
+          `${baseUrl}/appointment-payment-complete?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url:
+          `${baseUrl}/appointment-payment-cancelled`
+      });
+
+      return res.json({
+        success: true,
+        url: session.url,
+        sessionId: session.id,
+        manageUrl: getAppointmentManageUrl(req, session.id)
+      });
+    } catch (error) {
+      console.error("Appointment Stripe test checkout error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "The Stripe test checkout could not be created."
+      });
+    }
+  }
+);
+
+
+app.get(
+  "/appointment-checkout-status",
+  async (req, res) => {
+    try {
+      const stripe = getStripeTestClient();
+      const sessionId = cleanAppointmentValue(req.query.session_id, 200);
+
+      if (!sessionId || !sessionId.startsWith("cs_test_")) {
+        return res.status(400).json({ success: false, error: "Invalid test checkout session." });
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      return res.json({
+        success: true,
+        status: session.status,
+        paymentStatus: session.payment_status,
+        paid: session.payment_status === "paid",
+        amountTotal: Number(session.amount_total || 0),
+        manageUrl: getAppointmentManageUrl(req, session.id)
+      });
+    } catch (error) {
+      console.error("Appointment Stripe test status error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "The Stripe test payment status could not be checked."
+      });
+    }
+  }
+);
+
+
+app.get(
+  "/appointment-payment-complete",
+  async (req, res) => {
+    const sessionId = cleanAppointmentValue(req.query.session_id, 200);
+
+    try {
+      const stripe = getStripeTestClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const metadata = session.metadata || {};
+      const paid = session.payment_status === "paid";
+
+      sendPage(
+        res,
+        "Appointment Payment | Business Pro",
+        `
+          <h1>${paid ? "Payment Approved ✓" : "Payment Processing"}</h1>
+          <div class="notice">
+            <p><strong>TEST MODE:</strong> No real money was charged.</p>
+            <p><strong>Service:</strong> ${escapeHtml(metadata.serviceName || "Appointment")}</p>
+            <p><strong>Barber:</strong> ${escapeHtml(metadata.barberName || "Barber")}</p>
+            <p><strong>Date:</strong> ${escapeHtml(metadata.appointmentDate || "")}</p>
+            <p><strong>Time:</strong> ${escapeHtml(metadata.appointmentTime || "")}</p>
+            <p><strong>Amount:</strong> ${moneyFromCents(session.amount_total)}</p>
+          </div>
+          <p>${paid ? "Return to the Business Pro customer window. Your appointment will confirm automatically and your confirmation text will be sent." : "Please wait for the payment to finish, then return to the Business Pro customer window."}</p>
+          ${paid ? `<p><a href="${escapeHtml(getAppointmentManageUrl(req, session.id))}">Cancel or reschedule this appointment</a></p>` : ""}
+        `
+      );
+    } catch (error) {
+      console.error("Appointment payment completion page error:", error);
+      sendPage(
+        res,
+        "Appointment Payment | Business Pro",
+        `<h1>Payment Status Unavailable</h1><p>The test payment status could not be loaded.</p>`
+      );
+    }
+  }
+);
+
+
+app.get(
+  "/appointment-payment-cancelled",
+  (req, res) => {
+    sendPage(
+      res,
+      "Appointment Payment Cancelled | Business Pro",
+      `
+        <h1>Payment Not Completed</h1>
+        <p>No appointment was confirmed. Return to the Business Pro customer window to try again.</p>
+        <p><strong>TEST MODE:</strong> No real money was charged.</p>
+      `
+    );
+  }
+);
+
+
+async function refundTestAppointment(stripe, session, forceFullRefund = false) {
+  if (!session || session.payment_status !== "paid") {
+    throw new Error("This appointment does not have a completed test payment.");
+  }
+
+  const metadata = session.metadata || {};
+  const total = Number(session.amount_total || 0);
+  const lateHours = Math.max(1, Number(metadata.lateCancellationHours) || 24);
+  const latePercent = Math.min(100, Math.max(0, Number(metadata.lateCancellationPercent) || 20));
+  const appointmentStart = new Date(metadata.appointmentStartIso || "");
+  const hoursRemaining = Number.isNaN(appointmentStart.getTime())
+    ? Infinity
+    : (appointmentStart.getTime() - Date.now()) / 3600000;
+
+  const feeApplies = !forceFullRefund && hoursRemaining <= lateHours;
+  const feeCents = feeApplies ? Math.round(total * latePercent / 100) : 0;
+  const desiredRefundCents = Math.max(0, total - feeCents);
+
+  const paymentIntent = typeof session.payment_intent === "string"
+    ? session.payment_intent
+    : session.payment_intent?.id;
+
+  if (!paymentIntent) {
+    throw new Error("The Stripe test payment does not contain a payment intent.");
+  }
+
+  const existingRefunds = await stripe.refunds.list({
+    payment_intent: paymentIntent,
+    limit: 100
+  });
+
+  const refundedCents = existingRefunds.data
+    .filter(refund => refund.status !== "failed" && refund.status !== "canceled")
+    .reduce((sum, refund) => sum + Number(refund.amount || 0), 0);
+
+  const remainingRefundCents = Math.max(0, desiredRefundCents - refundedCents);
+  let refund = null;
+
+  if (remainingRefundCents > 0) {
+    refund = await stripe.refunds.create(
+      {
+        payment_intent: paymentIntent,
+        amount: remainingRefundCents,
+        metadata: {
+          paymentType: "appointment-test-refund",
+          bookingId: metadata.bookingId || "",
+          cancellationType: forceFullRefund ? "business-cancellation" : "customer-cancellation",
+          cancellationFeePercent: feeApplies ? String(latePercent) : "0"
+        }
+      },
+      {
+        idempotencyKey:
+          `bp-test-refund-${session.id}-${desiredRefundCents}-${forceFullRefund ? "business" : "customer"}`
+      }
+    );
+  }
+
+  return {
+    totalCents: total,
+    feeCents,
+    refundCents: desiredRefundCents,
+    newlyRefundedCents: remainingRefundCents,
+    refundId: refund?.id || "already-refunded",
+    feeApplies,
+    hoursRemaining
+  };
+}
+
+
+app.post(
+  "/refund-appointment-payment",
+  async (req, res) => {
+    try {
+      const stripe = getStripeTestClient();
+      const sessionId = cleanAppointmentValue(req.body.sessionId, 200);
+      const forceFullRefund = req.body.mode === "business-full-refund";
+
+      if (!sessionId || !sessionId.startsWith("cs_test_")) {
+        return res.status(400).json({ success: false, error: "Invalid test checkout session." });
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["payment_intent"]
+      });
+
+      const result = await refundTestAppointment(stripe, session, forceFullRefund);
+
+      return res.json({
+        success: true,
+        feeAmount: result.feeCents / 100,
+        refundAmount: result.refundCents / 100,
+        refundId: result.refundId,
+        feeApplies: result.feeApplies
+      });
+    } catch (error) {
+      console.error("Appointment Stripe test refund error:", error);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "The Stripe test refund could not be processed."
+      });
+    }
+  }
+);
+
+
+app.get(
+  "/manage-test-appointment",
+  async (req, res) => {
+    const sessionId = cleanAppointmentValue(req.query.session_id, 200);
+
+    try {
+      const stripe = getStripeTestClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const metadata = session.metadata || {};
+      const lateHours = Math.max(1, Number(metadata.lateCancellationHours) || 24);
+      const latePercent = Math.min(100, Math.max(0, Number(metadata.lateCancellationPercent) || 20));
+      const paid = session.payment_status === "paid";
+      const rescheduleBase = "https://villagebarber.businessprolocal.com/";
+      const rescheduleUrl = `${rescheduleBase}?reschedule=${encodeURIComponent(metadata.bookingId || "")}&paidSession=${encodeURIComponent(session.id)}`;
+
+      sendPage(
+        res,
+        "Manage Appointment | Business Pro",
+        `
+          <h1>Manage Your Appointment</h1>
+          <div class="notice">
+            <p><strong>${escapeHtml(metadata.serviceName || "Appointment")}</strong> with ${escapeHtml(metadata.barberName || "Barber")}</p>
+            <p>${escapeHtml(metadata.appointmentDate || "")} at <strong>${escapeHtml(metadata.appointmentTime || "")}</strong></p>
+            <p>Amount paid: <strong>${moneyFromCents(session.amount_total)}</strong> ${paid ? "✓" : ""}</p>
+          </div>
+
+          <div class="notice">
+            <strong>Cancellation Policy</strong>
+            <p>Cancel more than ${lateHours} hours before your appointment for a full refund. Cancellations made within ${lateHours} hours are subject to a <strong>${latePercent}% cancellation fee</strong>; the remaining ${100 - latePercent}% is refunded.</p>
+          </div>
+
+          <p><a href="${escapeHtml(rescheduleUrl)}">RESCHEDULE APPOINTMENT</a></p>
+
+          <form method="post" action="/cancel-test-appointment">
+            <input type="hidden" name="sessionId" value="${escapeHtml(session.id)}">
+            <button type="submit">CANCEL APPOINTMENT</button>
+          </form>
+
+          <p class="small"><strong>TEST MODE:</strong> Payments and refunds use Stripe test mode. No real money moves.</p>
+        `
+      );
+    } catch (error) {
+      console.error("Manage test appointment error:", error);
+      sendPage(
+        res,
+        "Manage Appointment | Business Pro",
+        `<h1>Appointment Not Found</h1><p>The test appointment could not be loaded.</p>`
+      );
+    }
+  }
+);
+
+
+app.post(
+  "/cancel-test-appointment",
+  async (req, res) => {
+    const sessionId = cleanAppointmentValue(req.body.sessionId, 200);
+
+    try {
+      const stripe = getStripeTestClient();
+      const session = await stripe.checkout.sessions.retrieve(sessionId, {
+        expand: ["payment_intent"]
+      });
+      const metadata = session.metadata || {};
+      const result = await refundTestAppointment(stripe, session, false);
+
+      sendPage(
+        res,
+        "Appointment Cancelled | Business Pro",
+        `
+          <h1>Appointment Cancelled</h1>
+          <div class="notice">
+            <p>${escapeHtml(metadata.serviceName || "Appointment")} with ${escapeHtml(metadata.barberName || "Barber")}</p>
+            <p>${escapeHtml(metadata.appointmentDate || "")} at ${escapeHtml(metadata.appointmentTime || "")}</p>
+            <p>Amount paid: <strong>${moneyFromCents(result.totalCents)}</strong></p>
+            <p>Cancellation fee retained: <strong>${moneyFromCents(result.feeCents)}</strong></p>
+            <p>Refund: <strong>${moneyFromCents(result.refundCents)}</strong></p>
+          </div>
+          <p><strong>TEST MODE:</strong> This refund was processed only against Stripe test funds.</p>
+        `
+      );
+    } catch (error) {
+      console.error("Cancel test appointment error:", error);
+      sendPage(
+        res,
+        "Cancellation Error | Business Pro",
+        `<h1>Cancellation Could Not Be Completed</h1><p>${escapeHtml(error.message || "The test cancellation failed.")}</p>`
+      );
+    }
+  }
+);
+
+
+// ============================================================
+// BUSINESS PRO LOCAL STRIPE CHECKOUT
+// ============================================================
 
 const BUSINESS_PRO_PLANS = {
 
@@ -1747,8 +1660,7 @@ const BUSINESS_PRO_PLANS = {
     setupAmount: 99500,
     monthlyAmount: 4900,
     advertisingRate: "$0.75 per click",
-    advertisingMinimum: "$25 monthly minimum",
-    features: BASIC_FEATURES
+    advertisingMinimum: "$25 monthly minimum"
   },
 
   professional: {
@@ -1756,8 +1668,7 @@ const BUSINESS_PRO_PLANS = {
     setupAmount: 149500,
     monthlyAmount: 7900,
     advertisingRate: "$1.25 per click",
-    advertisingMinimum: "$50 monthly minimum",
-    features: PROFESSIONAL_FEATURES
+    advertisingMinimum: "$50 monthly minimum"
   },
 
   "business-pro": {
@@ -1765,95 +1676,17 @@ const BUSINESS_PRO_PLANS = {
     setupAmount: 249500,
     monthlyAmount: 14900,
     advertisingRate: "$2.00 per click",
-    advertisingMinimum: "$75 monthly minimum",
-    features: BUSINESS_PRO_FEATURES
+    advertisingMinimum: "$75 monthly minimum"
   }
 
 };
 
 
-function cleanCheckoutValue(
-  value,
-  maxLength = 500
-) {
+function cleanCheckoutValue(value, maxLength = 500) {
 
   return String(value || "")
     .trim()
     .slice(0, maxLength);
-
-}
-
-
-function addOneCalendarMonth(
-  inputDate
-) {
-
-  const date =
-    new Date(inputDate);
-
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-
-    throw new Error(
-      "Invalid launch date."
-    );
-
-  }
-
-
-  const year =
-    date.getUTCFullYear();
-
-  const month =
-    date.getUTCMonth();
-
-  const day =
-    date.getUTCDate();
-
-
-  const firstOfTargetMonth =
-    new Date(
-      Date.UTC(
-        year,
-        month + 1,
-        1,
-        date.getUTCHours(),
-        date.getUTCMinutes(),
-        date.getUTCSeconds()
-      )
-    );
-
-
-  const targetYear =
-    firstOfTargetMonth.getUTCFullYear();
-
-  const targetMonth =
-    firstOfTargetMonth.getUTCMonth();
-
-
-  const lastDayOfTargetMonth =
-    new Date(
-      Date.UTC(
-        targetYear,
-        targetMonth + 1,
-        0
-      )
-    ).getUTCDate();
-
-
-  firstOfTargetMonth.setUTCDate(
-    Math.min(
-      day,
-      lastDayOfTargetMonth
-    )
-  );
-
-
-  return firstOfTargetMonth;
 
 }
 
@@ -1883,9 +1716,7 @@ app.post(
 
 
       const stripe =
-        new Stripe(
-          stripeSecretKey
-        );
+        new Stripe(stripeSecretKey);
 
 
       const planKey =
@@ -1999,32 +1830,17 @@ app.post(
           advertising === "ON"
             ? plan.advertisingMinimum
             : "Not selected",
-        businessNotes,
-        billingPolicy:
-          "Setup fee only at signup. Monthly service begins at launch and first bills one month after launch."
+        businessNotes
       };
 
 
       const session =
         await stripe.checkout.sessions.create({
 
-          mode:
-            "payment",
+          mode: "subscription",
 
           customer_email:
             email,
-
-          customer_creation:
-            "always",
-
-          payment_method_types: [
-            "card"
-          ],
-
-          payment_intent_data: {
-            setup_future_usage:
-              "off_session"
-          },
 
           line_items: [
 
@@ -2039,11 +1855,31 @@ app.post(
                   plan.setupAmount
               },
               quantity: 1
+            },
+
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name:
+                    `Business Pro Local ${plan.name} Monthly Service`
+                },
+                unit_amount:
+                  plan.monthlyAmount,
+                recurring: {
+                  interval: "month"
+                }
+              },
+              quantity: 1
             }
 
           ],
 
           metadata,
+
+          subscription_data: {
+            metadata
+          },
 
           success_url:
             "https://villagebarber.businessprolocal.com/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}",
@@ -2075,493 +1911,6 @@ app.post(
         error:
           error.message ||
           "The Stripe checkout session could not be created."
-
-      });
-
-    }
-
-  }
-);
-
-
-// ============================================================
-// START MONTHLY SERVICE AFTER WEBSITE LAUNCH
-// ============================================================
-
-app.post(
-  "/start-monthly-service",
-  async (req, res) => {
-
-    try {
-
-      const {
-        STRIPE_SECRET_KEY,
-        MONTHLY_BILLING_ADMIN_KEY
-      } = process.env;
-
-
-      if (
-        !STRIPE_SECRET_KEY ||
-        !MONTHLY_BILLING_ADMIN_KEY
-      ) {
-
-        return res.status(500).json({
-
-          success: false,
-
-          error:
-            "Monthly billing configuration is incomplete."
-
-        });
-
-      }
-
-
-      const providedAdminKey =
-        String(
-          req.headers[
-            "x-business-pro-admin-key"
-          ] || ""
-        );
-
-
-      if (
-        providedAdminKey !==
-        MONTHLY_BILLING_ADMIN_KEY
-      ) {
-
-        return res.status(403).json({
-
-          success: false,
-
-          error:
-            "Not authorized."
-
-        });
-
-      }
-
-
-      const checkoutSessionId =
-        cleanCheckoutValue(
-          req.body.checkoutSessionId,
-          200
-        );
-
-
-      if (!checkoutSessionId) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "checkoutSessionId is required."
-
-        });
-
-      }
-
-
-      const stripe =
-        new Stripe(
-          STRIPE_SECRET_KEY
-        );
-
-
-      const session =
-        await stripe.checkout.sessions.retrieve(
-          checkoutSessionId
-        );
-
-
-      if (
-        session.payment_status !==
-        "paid"
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "The setup payment has not been completed."
-
-        });
-
-      }
-
-
-      const metadata =
-        session.metadata || {};
-
-
-      const plan =
-        BUSINESS_PRO_PLANS[
-          metadata.planKey
-        ];
-
-
-      if (!plan) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "The checkout session does not contain a valid Business Pro Local package."
-
-        });
-
-      }
-
-
-      const customerId =
-        getStripeObjectId(
-          session.customer
-        );
-
-
-      if (!customerId) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "The checkout session does not contain a Stripe customer."
-
-        });
-
-      }
-
-
-      const customer =
-        await stripe.customers.retrieve(
-          customerId
-        );
-
-
-      if (customer.deleted) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "The Stripe customer is no longer available."
-
-        });
-
-      }
-
-
-      const existingSubscriptionId =
-        customer.metadata
-          ?.businessProMonthlySubscriptionId;
-
-
-      if (existingSubscriptionId) {
-
-        try {
-
-          const existingSubscription =
-            await stripe.subscriptions.retrieve(
-              existingSubscriptionId
-            );
-
-
-          if (
-            [
-              "active",
-              "trialing",
-              "past_due",
-              "unpaid"
-            ].includes(
-              existingSubscription.status
-            )
-          ) {
-
-            return res.json({
-
-              success: true,
-
-              alreadyStarted:
-                true,
-
-              subscriptionId:
-                existingSubscription.id,
-
-              status:
-                existingSubscription.status,
-
-              firstBillingDate:
-                customer.metadata
-                  ?.businessProFirstBillingDate ||
-                ""
-
-            });
-
-          }
-
-        } catch (error) {
-
-          console.warn(
-            "Existing subscription lookup failed:",
-            error.message
-          );
-
-        }
-
-      }
-
-
-      let paymentMethodId =
-        getStripeObjectId(
-          customer.invoice_settings
-            ?.default_payment_method
-        );
-
-
-      if (!paymentMethodId) {
-
-        const paymentIntentId =
-          getStripeObjectId(
-            session.payment_intent
-          );
-
-
-        if (paymentIntentId) {
-
-          const paymentIntent =
-            await stripe.paymentIntents.retrieve(
-              paymentIntentId
-            );
-
-
-          paymentMethodId =
-            getStripeObjectId(
-              paymentIntent.payment_method
-            );
-
-        }
-
-      }
-
-
-      if (!paymentMethodId) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "No saved payment method is available for monthly billing."
-
-        });
-
-      }
-
-
-      const requestedLaunchDate =
-        cleanCheckoutValue(
-          req.body.launchDate,
-          100
-        );
-
-
-      const launchDate =
-        requestedLaunchDate
-          ? new Date(
-              requestedLaunchDate
-            )
-          : new Date();
-
-
-      if (
-        Number.isNaN(
-          launchDate.getTime()
-        )
-      ) {
-
-        return res.status(400).json({
-
-          success: false,
-
-          error:
-            "launchDate must be a valid date."
-
-        });
-
-      }
-
-
-      const firstBillingDate =
-        addOneCalendarMonth(
-          launchDate
-        );
-
-
-      const recurringPrice =
-        await stripe.prices.create(
-          {
-
-            currency:
-              "usd",
-
-            unit_amount:
-              plan.monthlyAmount,
-
-            recurring: {
-              interval:
-                "month"
-            },
-
-            product_data: {
-              name:
-                `Business Pro Local ${plan.name} Monthly Service`
-            },
-
-            metadata: {
-              planKey:
-                metadata.planKey || "",
-              checkoutSessionId:
-                session.id,
-              businessName:
-                metadata.businessName || ""
-            }
-
-          },
-          {
-            idempotencyKey:
-              `business-pro-monthly-price-${session.id}`
-          }
-        );
-
-
-      const subscription =
-        await stripe.subscriptions.create(
-          {
-
-            customer:
-              customerId,
-
-            items: [
-              {
-                price:
-                  recurringPrice.id
-              }
-            ],
-
-            default_payment_method:
-              paymentMethodId,
-
-            collection_method:
-              "charge_automatically",
-
-            trial_end:
-              Math.floor(
-                firstBillingDate.getTime() /
-                1000
-              ),
-
-            metadata: {
-              businessName:
-                metadata.businessName || "",
-              ownerName:
-                metadata.ownerName || "",
-              email:
-                metadata.email || "",
-              plan:
-                plan.name,
-              planKey:
-                metadata.planKey || "",
-              advertising:
-                metadata.advertising || "OFF",
-              checkoutSessionId:
-                session.id,
-              launchDate:
-                launchDate.toISOString(),
-              firstBillingDate:
-                firstBillingDate.toISOString(),
-              billingPolicy:
-                "First monthly charge occurs one month after launch and covers the first completed month of service."
-            },
-
-            description:
-              `Business Pro Local ${plan.name} monthly website service`
-
-          },
-          {
-            idempotencyKey:
-              `business-pro-monthly-subscription-${session.id}`
-          }
-        );
-
-
-      await stripe.customers.update(
-        customerId,
-        {
-
-          metadata: {
-
-            ...customer.metadata,
-
-            businessProMonthlySubscriptionId:
-              subscription.id,
-
-            businessProLaunchDate:
-              launchDate.toISOString(),
-
-            businessProFirstBillingDate:
-              firstBillingDate.toISOString()
-
-          }
-
-        }
-      );
-
-
-      return res.json({
-
-        success: true,
-
-        alreadyStarted:
-          false,
-
-        subscriptionId:
-          subscription.id,
-
-        status:
-          subscription.status,
-
-        launchDate:
-          launchDate.toISOString(),
-
-        firstBillingDate:
-          firstBillingDate.toISOString(),
-
-        monthlyAmount:
-          plan.monthlyAmount
-
-      });
-
-
-    } catch (error) {
-
-      console.error(
-        "Start monthly service error:",
-        error
-      );
-
-
-      return res.status(500).json({
-
-        success: false,
-
-        error:
-          error.message ||
-          "Monthly service could not be started."
 
       });
 
