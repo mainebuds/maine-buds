@@ -1,5 +1,7 @@
+// TEST 2 — card first, then PAY NOW or PAY AT STORE, with manage links
 const express = require("express");
 const Stripe = require("stripe");
+const crypto = require("crypto");
 
 const app = express();
 
@@ -976,7 +978,8 @@ async function sendTwilioMessage(
 
 async function sendAppointmentEmail(
   appointment,
-  sessionId
+  sessionId,
+  manageUrl
 ) {
 
   const {
@@ -1008,11 +1011,13 @@ async function sendAppointmentEmail(
     );
   }
 
-  const amount =
-    `$${(
-      Number(appointment.amountTotal || 0) /
-      100
-    ).toFixed(2)}`;
+  const paymentLine =
+    appointment.paymentChoice === "pay_at_store"
+      ? "Payment: Pay at store"
+      : `Payment received: $${(
+          Number(appointment.amountPaidCents || 0) /
+          100
+        ).toFixed(2)}`;
 
   const lines = [
     `Shop: ${appointment.shopName}`,
@@ -1022,7 +1027,8 @@ async function sendAppointmentEmail(
     `Service: ${appointment.serviceName}`,
     `Date: ${appointment.appointmentDate}`,
     `Time: ${appointment.appointmentTime}`,
-    `Paid: ${amount}`,
+    paymentLine,
+    `Manage appointment: ${manageUrl}`,
     `Stripe test session: ${sessionId}`
   ];
 
@@ -1046,7 +1052,7 @@ async function sendAppointmentEmail(
               "Business Pro Local <onboarding@resend.dev>",
             to: [destination],
             subject:
-              `Paid Appointment — ${appointment.customerName} with ${appointment.barberName}`,
+              `Appointment — ${appointment.customerName} with ${appointment.barberName}`,
             text:
               lines.join("\n")
           })
@@ -1071,6 +1077,409 @@ async function sendAppointmentEmail(
   }
 
   return result;
+
+}
+
+
+async function sendAppointmentCancellationEmail(
+  appointment,
+  sessionId,
+  reason
+) {
+
+  const {
+    RESEND_API_KEY,
+    APPOINTMENT_NOTIFICATION_EMAIL,
+    OWNER_NOTIFICATION_EMAIL,
+    BARBER_NOTIFICATION_EMAIL,
+    BUSINESS_PRO_NOTIFICATION_EMAIL,
+    SIGNUP_NOTIFICATION_EMAIL,
+    RESEND_TO_EMAIL,
+    RESEND_FROM_EMAIL
+  } = process.env;
+
+  const destination =
+    APPOINTMENT_NOTIFICATION_EMAIL ||
+    OWNER_NOTIFICATION_EMAIL ||
+    BARBER_NOTIFICATION_EMAIL ||
+    BUSINESS_PRO_NOTIFICATION_EMAIL ||
+    SIGNUP_NOTIFICATION_EMAIL ||
+    RESEND_TO_EMAIL ||
+    "";
+
+  if (!RESEND_API_KEY || !destination) {
+    throw new Error(
+      "Appointment email configuration is incomplete."
+    );
+  }
+
+  const lines = [
+    `Shop: ${appointment.shopName}`,
+    `Customer: ${appointment.customerName}`,
+    `Phone: ${appointment.phone}`,
+    `Barber: ${appointment.barberName}`,
+    `Service: ${appointment.serviceName}`,
+    `Date: ${appointment.appointmentDate}`,
+    `Time: ${appointment.appointmentTime}`,
+    `Status: ${reason}`,
+    `Stripe test session: ${sessionId}`
+  ];
+
+  const resendResponse = await fetch(
+    "https://api.resend.com/emails",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `appointment-cancel/${sessionId}/${reason.replace(/\s+/g, "-").toLowerCase()}`
+      },
+      body: JSON.stringify({
+        from:
+          RESEND_FROM_EMAIL ||
+          "Business Pro Local <onboarding@resend.dev>",
+        to: [destination],
+        subject:
+          `${reason} — ${appointment.customerName} with ${appointment.barberName}`,
+        text: lines.join("\n")
+      })
+    }
+  );
+
+  const result = await resendResponse.json();
+
+  if (!resendResponse.ok) {
+    console.error(
+      "Resend cancellation email error:",
+      result
+    );
+    throw new Error(
+      result.message ||
+      "Resend rejected the cancellation email."
+    );
+  }
+
+  return result;
+
+}
+
+
+function appointmentFromSession(session) {
+
+  const metadata =
+    session.metadata || {};
+
+  return {
+    shopName:
+      metadata.shopName ||
+      "Barber Shop",
+    barberName:
+      metadata.barberName ||
+      "Barber",
+    serviceName:
+      metadata.serviceName ||
+      "Appointment",
+    customerName:
+      metadata.customerName ||
+      "Customer",
+    phone:
+      metadata.phone ||
+      "",
+    appointmentDate:
+      metadata.appointmentDate ||
+      "",
+    appointmentTime:
+      metadata.appointmentTime ||
+      "",
+    appointmentTime24:
+      metadata.appointmentTime24 ||
+      "",
+    smsConsent:
+      metadata.smsConsent === "yes",
+    paymentChoice:
+      metadata.paymentChoice || "",
+    amountCents:
+      Number(metadata.amountCents || 0),
+    amountPaidCents:
+      Number(metadata.amountPaidCents || 0)
+  };
+
+}
+
+
+function getAppointmentManageSecret() {
+
+  return String(
+    process.env.APPOINTMENT_MANAGE_SECRET ||
+    process.env.STRIPE_TEST_SECRET_KEY ||
+    process.env.STRIPE_SECRET_KEY ||
+    ""
+  );
+
+}
+
+
+function createAppointmentManageToken(
+  sessionId
+) {
+
+  const secret =
+    getAppointmentManageSecret();
+
+  if (!secret) {
+    throw new Error(
+      "Appointment management secret is not configured."
+    );
+  }
+
+  return crypto
+    .createHmac("sha256", secret)
+    .update(String(sessionId || ""))
+    .digest("hex");
+
+}
+
+
+function appointmentManageTokenIsValid(
+  sessionId,
+  token
+) {
+
+  try {
+
+    const expected =
+      Buffer.from(
+        createAppointmentManageToken(
+          sessionId
+        ),
+        "utf8"
+      );
+
+    const actual =
+      Buffer.from(
+        String(token || ""),
+        "utf8"
+      );
+
+    return (
+      expected.length === actual.length &&
+      crypto.timingSafeEqual(
+        expected,
+        actual
+      )
+    );
+
+  } catch {
+    return false;
+  }
+
+}
+
+
+function getAppointmentManageUrl(
+  req,
+  sessionId
+) {
+
+  const baseUrl =
+    getRequestBaseUrl(req);
+
+  const token =
+    createAppointmentManageToken(
+      sessionId
+    );
+
+  return (
+    `${baseUrl}/manage-appointment` +
+    `?session_id=${encodeURIComponent(sessionId)}` +
+    `&token=${encodeURIComponent(token)}`
+  );
+
+}
+
+
+async function getCompletedSetupSession(
+  stripe,
+  sessionId
+) {
+
+  if (
+    !sessionId ||
+    !String(sessionId).startsWith("cs_test_")
+  ) {
+    throw new Error(
+      "Invalid test checkout session."
+    );
+  }
+
+  const session =
+    await stripe.checkout.sessions.retrieve(
+      sessionId,
+      {
+        expand: [
+          "setup_intent"
+        ]
+      }
+    );
+
+  if (
+    session.mode !== "setup" ||
+    session.status !== "complete"
+  ) {
+    throw new Error(
+      "Card setup is not complete yet."
+    );
+  }
+
+  const setupIntent =
+    session.setup_intent;
+
+  if (
+    !setupIntent ||
+    setupIntent.status !== "succeeded" ||
+    !setupIntent.payment_method
+  ) {
+    throw new Error(
+      "The saved card is not ready yet."
+    );
+  }
+
+  return session;
+
+}
+
+
+async function sendFinalizedAppointmentNotifications(
+  req,
+  stripe,
+  session
+) {
+
+  const metadata =
+    session.metadata || {};
+
+  if (
+    metadata.appointmentStatus !==
+    "confirmed"
+  ) {
+    return {
+      smsRequested: false,
+      smsSent: false,
+      emailSent: false,
+      smsError: "",
+      emailError: ""
+    };
+  }
+
+  const appointment =
+    appointmentFromSession(session);
+
+  const manageUrl =
+    getAppointmentManageUrl(
+      req,
+      session.id
+    );
+
+  let smsSent =
+    metadata.appointmentSmsSent ===
+    "yes";
+
+  let emailSent =
+    metadata.appointmentEmailSent ===
+    "yes";
+
+  let smsError = "";
+  let emailError = "";
+
+  if (
+    appointment.smsConsent &&
+    !smsSent
+  ) {
+
+    try {
+
+      const paymentText =
+        appointment.paymentChoice ===
+        "pay_at_store"
+          ? "Pay at store."
+          : "Payment received.";
+
+      const messageBody =
+        `${appointment.shopName}: Your appointment with ${appointment.barberName} is confirmed for ${appointment.appointmentDate} at ${appointment.appointmentTime}. ${paymentText} Cancel or reschedule: ${manageUrl} Reply STOP to opt out.`;
+
+      await sendTwilioMessage(
+        appointment.phone,
+        messageBody
+      );
+
+      smsSent = true;
+
+    } catch (error) {
+
+      smsError =
+        error.message ||
+        "The confirmation text could not be sent.";
+
+      console.error(
+        "Appointment SMS error:",
+        error
+      );
+
+    }
+
+  }
+
+  if (!emailSent) {
+
+    try {
+
+      await sendAppointmentEmail(
+        appointment,
+        session.id,
+        manageUrl
+      );
+
+      emailSent = true;
+
+    } catch (error) {
+
+      emailError =
+        error.message ||
+        "The owner/barber email could not be sent.";
+
+      console.error(
+        "Appointment email error:",
+        error
+      );
+
+    }
+
+  }
+
+  await stripe.checkout.sessions.update(
+    session.id,
+    {
+      metadata: {
+        ...metadata,
+        appointmentSmsSent:
+          smsSent ? "yes" : "no",
+        appointmentEmailSent:
+          emailSent ? "yes" : "no",
+        appointmentNotificationsCheckedAt:
+          new Date().toISOString()
+      }
+    }
+  );
+
+  return {
+    smsRequested:
+      appointment.smsConsent,
+    smsSent,
+    emailSent,
+    smsError,
+    emailError,
+    manageUrl
+  };
 
 }
 
@@ -1172,29 +1581,25 @@ app.post(
         cleanAppointmentValue(
           req.body.shopName,
           160
-        ) ||
-        "Barber Shop";
+        ) || "Barber Shop";
 
       const barberName =
         cleanAppointmentValue(
           req.body.barberName,
           160
-        ) ||
-        "Barber";
+        ) || "Barber";
 
       const serviceName =
         cleanAppointmentValue(
           req.body.serviceName,
           160
-        ) ||
-        "Appointment";
+        ) || "Appointment";
 
       const customerName =
         cleanAppointmentValue(
           req.body.customerName,
           160
-        ) ||
-        "Customer";
+        ) || "Customer";
 
       const phone =
         cleanAppointmentValue(
@@ -1266,7 +1671,7 @@ app.post(
 
       const metadata = {
         paymentType:
-          "appointment-test",
+          "appointment-card-choice-test",
         bookingId,
         shopName,
         barberName,
@@ -1276,39 +1681,42 @@ app.post(
         appointmentDate,
         appointmentTime,
         appointmentTime24,
-        smsConsent
+        smsConsent,
+        amountCents:
+          String(amountCents),
+        appointmentStatus:
+          "awaiting-payment-choice",
+        paymentChoice:
+          ""
       };
+
+      const customer =
+        await stripe.customers.create({
+          name: customerName,
+          phone,
+          metadata: {
+            bookingId,
+            appointmentType:
+              "Business Pro barber appointment test"
+          }
+        });
 
       const session =
         await stripe.checkout.sessions.create({
-          mode: "payment",
+          mode: "setup",
           payment_method_types: [
             "card"
           ],
+          customer:
+            customer.id,
           client_reference_id:
             bookingId,
-          line_items: [
-            {
-              price_data: {
-                currency: "usd",
-                product_data: {
-                  name:
-                    `${shopName} — ${serviceName}`,
-                  description:
-                    `${barberName} • ${appointmentDate} at ${appointmentTime}`
-                },
-                unit_amount:
-                  amountCents
-              },
-              quantity: 1
-            }
-          ],
           metadata,
-          payment_intent_data: {
+          setup_intent_data: {
             metadata
           },
           success_url:
-            `${baseUrl}/appointment-payment-complete?session_id={CHECKOUT_SESSION_ID}`,
+            `${baseUrl}/appointment-payment-choice?session_id={CHECKOUT_SESSION_ID}`,
           cancel_url:
             `${baseUrl}/appointment-payment-cancelled`
         });
@@ -1322,7 +1730,7 @@ app.post(
     } catch (error) {
 
       console.error(
-        "Appointment Stripe test checkout error:",
+        "Appointment Stripe card setup error:",
         error
       );
 
@@ -1330,7 +1738,7 @@ app.post(
         success: false,
         error:
           error.message ||
-          "The Stripe test checkout could not be created."
+          "The secure card page could not be created."
       });
 
     }
@@ -1370,26 +1778,42 @@ app.get(
           sessionId
         );
 
+      const metadata =
+        session.metadata || {};
+
+      const confirmed =
+        metadata.appointmentStatus ===
+        "confirmed";
+
       return res.json({
         success: true,
         status:
           session.status,
-        paymentStatus:
-          session.payment_status,
+        confirmed,
         paid:
-          session.payment_status ===
-          "paid",
+          confirmed &&
+          metadata.paymentChoice ===
+          "pay_now",
+        paymentChoice:
+          metadata.paymentChoice || "",
         amountTotal:
           Number(
-            session.amount_total ||
+            metadata.amountPaidCents ||
             0
-          )
+          ),
+        manageUrl:
+          confirmed
+            ? getAppointmentManageUrl(
+                req,
+                session.id
+              )
+            : ""
       });
 
     } catch (error) {
 
       console.error(
-        "Appointment payment status error:",
+        "Appointment status error:",
         error
       );
 
@@ -1397,7 +1821,7 @@ app.get(
         success: false,
         error:
           error.message ||
-          "The Stripe test payment status could not be checked."
+          "The appointment status could not be checked."
       });
 
     }
@@ -1438,156 +1862,32 @@ app.post(
         );
 
       if (
-        session.payment_status !==
-        "paid"
+        session.metadata?.appointmentStatus !==
+        "confirmed"
       ) {
         return res.status(409).json({
           success: false,
           error:
-            "Appointment payment is not complete yet."
+            "The appointment has not been confirmed yet."
         });
       }
 
-      const metadata =
-        session.metadata || {};
-
-      const appointment = {
-        shopName:
-          metadata.shopName ||
-          "Barber Shop",
-        barberName:
-          metadata.barberName ||
-          "Barber",
-        serviceName:
-          metadata.serviceName ||
-          "Appointment",
-        customerName:
-          metadata.customerName ||
-          "Customer",
-        phone:
-          metadata.phone ||
-          "",
-        appointmentDate:
-          metadata.appointmentDate ||
-          "",
-        appointmentTime:
-          metadata.appointmentTime ||
-          "",
-        amountTotal:
-          Number(
-            session.amount_total ||
-            0
-          ),
-        smsConsent:
-          metadata.smsConsent ===
-          "yes"
-      };
-
-      let smsSent =
-        metadata.appointmentSmsSent ===
-        "yes";
-
-      let emailSent =
-        metadata.appointmentEmailSent ===
-        "yes";
-
-      let smsError = "";
-      let emailError = "";
-
-      if (
-        appointment.smsConsent &&
-        !smsSent
-      ) {
-
-        try {
-
-          const messageBody =
-            `${appointment.shopName}: Your appointment with ${appointment.barberName} is confirmed for ${appointment.appointmentDate} at ${appointment.appointmentTime}. Payment received. Reply STOP to opt out.`;
-
-          await sendTwilioMessage(
-            appointment.phone,
-            messageBody
-          );
-
-          smsSent = true;
-
-        } catch (error) {
-
-          smsError =
-            error.message ||
-            "The confirmation text could not be sent.";
-
-          console.error(
-            "Paid appointment SMS error:",
-            error
-          );
-
-        }
-
-      }
-
-      if (!emailSent) {
-
-        try {
-
-          await sendAppointmentEmail(
-            appointment,
-            session.id
-          );
-
-          emailSent = true;
-
-        } catch (error) {
-
-          emailError =
-            error.message ||
-            "The owner/barber email could not be sent.";
-
-          console.error(
-            "Paid appointment email error:",
-            error
-          );
-
-        }
-
-      }
-
-      const updatedMetadata = {
-        ...metadata,
-        appointmentSmsSent:
-          smsSent
-            ? "yes"
-            : "no",
-        appointmentEmailSent:
-          emailSent
-            ? "yes"
-            : "no",
-        appointmentNotificationsCheckedAt:
-          new Date().toISOString()
-      };
-
-      await stripe.checkout.sessions.update(
-        session.id,
-        {
-          metadata:
-            updatedMetadata
-        }
-      );
+      const result =
+        await sendFinalizedAppointmentNotifications(
+          req,
+          stripe,
+          session
+        );
 
       return res.json({
         success: true,
-        smsRequested:
-          appointment.smsConsent,
-        smsSent,
-        emailSent,
-        smsError,
-        emailError
+        ...result
       });
 
     } catch (error) {
 
       console.error(
-        "Paid appointment notification error:",
+        "Appointment notification error:",
         error
       );
 
@@ -1605,7 +1905,7 @@ app.post(
 
 
 app.get(
-  "/appointment-payment-complete",
+  "/appointment-payment-choice",
   async (req, res) => {
 
     const sessionId =
@@ -1620,41 +1920,667 @@ app.get(
         getStripeTestClient();
 
       const session =
-        await stripe.checkout.sessions.retrieve(
+        await getCompletedSetupSession(
+          stripe,
           sessionId
         );
 
-      const paid =
-        session.payment_status ===
-        "paid";
+      const appointment =
+        appointmentFromSession(session);
+
+      if (
+        session.metadata?.appointmentStatus ===
+        "confirmed"
+      ) {
+
+        const manageUrl =
+          getAppointmentManageUrl(
+            req,
+            session.id
+          );
+
+        return sendPage(
+          res,
+          "Appointment Confirmed | Business Pro",
+          `
+            <h1>Appointment Confirmed ✓</h1>
+            <p>Your appointment is already confirmed.</p>
+            <p><a href="${manageUrl}">Cancel or reschedule appointment</a></p>
+            <p>Return to the appointment window.</p>
+          `
+        );
+
+      }
+
+      const amount =
+        `$${(
+          Number(appointment.amountCents || 0) /
+          100
+        ).toFixed(2)}`;
 
       sendPage(
         res,
-        "Appointment Payment | Business Pro",
+        "Choose Payment | Business Pro",
         `
-          <h1>${paid ? "Payment Approved ✓" : "Payment Processing"}</h1>
+          <h1>Choose How You Want to Pay</h1>
           <div class="notice">
-            <p><strong>TEST MODE:</strong> No real money was charged.</p>
-            <p><strong>Amount:</strong> $${(Number(session.amount_total || 0) / 100).toFixed(2)}</p>
+            <p><strong>Card saved securely in Stripe Test Mode.</strong></p>
+            <p><strong>${appointment.serviceName}</strong> with <strong>${appointment.barberName}</strong></p>
+            <p>${appointment.appointmentDate} at ${appointment.appointmentTime}</p>
+            <p>Appointment total: <strong>${amount}</strong></p>
           </div>
-          <p>${paid ? "Your payment is complete. Return to the appointment window; it will confirm automatically." : "Your payment is still processing."}</p>
+
+          <form method="POST" action="/appointment-choice/pay-now">
+            <input type="hidden" name="sessionId" value="${session.id}">
+            <button type="submit">PAY NOW BY CARD — ${amount}</button>
+          </form>
+
+          <form method="POST" action="/appointment-choice/pay-at-store">
+            <input type="hidden" name="sessionId" value="${session.id}">
+            <button type="submit">PAY AT STORE</button>
+          </form>
+
+          <p class="small">TEST MODE — no real money is charged.</p>
         `
       );
 
     } catch (error) {
 
       console.error(
-        "Appointment payment complete page error:",
+        "Payment choice page error:",
         error
       );
 
       sendPage(
         res,
-        "Appointment Payment | Business Pro",
+        "Payment Choice Unavailable | Business Pro",
         `
-          <h1>Payment Status Unavailable</h1>
-          <p>The test payment status could not be loaded.</p>
+          <h1>Payment Choice Unavailable</h1>
+          <p>${cleanAppointmentValue(error.message, 300)}</p>
         `
+      );
+
+    }
+
+  }
+);
+
+
+app.post(
+  "/appointment-choice/pay-now",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await getCompletedSetupSession(
+          stripe,
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      if (
+        metadata.appointmentStatus ===
+        "confirmed"
+      ) {
+        return res.redirect(
+          `/appointment-payment-choice?session_id=${encodeURIComponent(session.id)}`
+        );
+      }
+
+      const setupIntent =
+        session.setup_intent;
+
+      const amountCents =
+        Number(
+          metadata.amountCents ||
+          0
+        );
+
+      if (
+        !Number.isFinite(amountCents) ||
+        amountCents < 50
+      ) {
+        throw new Error(
+          "The appointment amount is invalid."
+        );
+      }
+
+      const paymentIntent =
+        await stripe.paymentIntents.create(
+          {
+            amount:
+              amountCents,
+            currency:
+              "usd",
+            customer:
+              session.customer,
+            payment_method:
+              setupIntent.payment_method,
+            confirm:
+              true,
+            off_session:
+              true,
+            description:
+              `${metadata.shopName || "Barber Shop"} — ${metadata.serviceName || "Appointment"}`,
+            metadata: {
+              ...metadata,
+              checkoutSessionId:
+                session.id,
+              paymentChoice:
+                "pay_now"
+            }
+          },
+          {
+            idempotencyKey:
+              `appointment-pay-now-${session.id}`
+          }
+        );
+
+      if (
+        paymentIntent.status !==
+        "succeeded"
+      ) {
+        throw new Error(
+          `Payment did not complete. Stripe status: ${paymentIntent.status}`
+        );
+      }
+
+      const finalMetadata = {
+        ...metadata,
+        appointmentStatus:
+          "confirmed",
+        paymentChoice:
+          "pay_now",
+        paymentIntentId:
+          paymentIntent.id,
+        amountPaidCents:
+          String(
+            paymentIntent.amount_received ||
+            amountCents
+          ),
+        confirmedAt:
+          new Date().toISOString()
+      };
+
+      const notifications =
+        await sendFinalizedAppointmentNotifications(
+          req,
+          stripe,
+          {
+            ...session,
+            metadata:
+              finalMetadata
+          }
+        );
+
+      sendPage(
+        res,
+        "Appointment Confirmed | Business Pro",
+        `
+          <h1>Payment Approved — Appointment Confirmed ✓</h1>
+          <div class="notice">
+            <p><strong>TEST MODE:</strong> No real money was charged.</p>
+            <p><strong>Paid:</strong> $${(amountCents / 100).toFixed(2)}</p>
+          </div>
+          <p>${notifications.smsSent ? "Confirmation text sent." : "Confirmation text was not sent."}</p>
+          <p>${notifications.emailSent ? "Owner/barber email sent." : "Owner/barber email was not sent."}</p>
+          <p><a href="${notifications.manageUrl}">Cancel or reschedule appointment</a></p>
+          <p>Return to the appointment window.</p>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Pay-now appointment error:",
+        error
+      );
+
+      sendPage(
+        res,
+        "Payment Failed | Business Pro",
+        `
+          <h1>Payment Could Not Be Completed</h1>
+          <p>${cleanAppointmentValue(error.message, 300)}</p>
+          <p>Return to the appointment window and try again.</p>
+        `
+      );
+
+    }
+
+  }
+);
+
+
+app.post(
+  "/appointment-choice/pay-at-store",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await getCompletedSetupSession(
+          stripe,
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      const finalMetadata = {
+        ...metadata,
+        appointmentStatus:
+          "confirmed",
+        paymentChoice:
+          "pay_at_store",
+        amountPaidCents:
+          "0",
+        confirmedAt:
+          metadata.confirmedAt ||
+          new Date().toISOString()
+      };
+
+      const notifications =
+        await sendFinalizedAppointmentNotifications(
+          req,
+          stripe,
+          {
+            ...session,
+            metadata:
+              finalMetadata
+          }
+        );
+
+      sendPage(
+        res,
+        "Appointment Confirmed | Business Pro",
+        `
+          <h1>Appointment Confirmed ✓</h1>
+          <div class="notice">
+            <p><strong>Payment:</strong> Pay at store</p>
+            <p>Your card is saved securely in Stripe Test Mode for this test appointment.</p>
+          </div>
+          <p>${notifications.smsSent ? "Confirmation text sent." : "Confirmation text was not sent."}</p>
+          <p>${notifications.emailSent ? "Owner/barber email sent." : "Owner/barber email was not sent."}</p>
+          <p><a href="${notifications.manageUrl}">Cancel or reschedule appointment</a></p>
+          <p>Return to the appointment window.</p>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Pay-at-store appointment error:",
+        error
+      );
+
+      sendPage(
+        res,
+        "Appointment Could Not Be Confirmed | Business Pro",
+        `
+          <h1>Appointment Could Not Be Confirmed</h1>
+          <p>${cleanAppointmentValue(error.message, 300)}</p>
+          <p>Return to the appointment window and try again.</p>
+        `
+      );
+
+    }
+
+  }
+);
+
+
+app.get(
+  "/manage-appointment",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.query.session_id,
+        200
+      );
+
+    const token =
+      cleanAppointmentValue(
+        req.query.token,
+        200
+      );
+
+    if (
+      !appointmentManageTokenIsValid(
+        sessionId,
+        token
+      )
+    ) {
+      return res.status(403).send(
+        "Invalid appointment management link."
+      );
+    }
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      const session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
+
+      const appointment =
+        appointmentFromSession(session);
+
+      const status =
+        session.metadata?.appointmentStatus ||
+        "";
+
+      if (status === "canceled") {
+        return sendPage(
+          res,
+          "Appointment Cancelled | Business Pro",
+          `
+            <h1>Appointment Cancelled</h1>
+            <p>This appointment has already been cancelled.</p>
+          `
+        );
+      }
+
+      sendPage(
+        res,
+        "Manage Appointment | Business Pro",
+        `
+          <h1>Manage Appointment</h1>
+          <div class="notice">
+            <p><strong>${appointment.customerName}</strong></p>
+            <p>${appointment.serviceName} with ${appointment.barberName}</p>
+            <p>${appointment.appointmentDate} at ${appointment.appointmentTime}</p>
+          </div>
+
+          <form method="POST" action="/appointment-manage/cancel">
+            <input type="hidden" name="sessionId" value="${session.id}">
+            <input type="hidden" name="token" value="${token}">
+            <button type="submit">CANCEL APPOINTMENT</button>
+          </form>
+
+          <form method="POST" action="/appointment-manage/reschedule">
+            <input type="hidden" name="sessionId" value="${session.id}">
+            <input type="hidden" name="token" value="${token}">
+            <button type="submit">RESCHEDULE APPOINTMENT</button>
+          </form>
+
+          <p class="small">This is the current test flow. Cancellation-fee/refund rules will be added separately.</p>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Manage appointment page error:",
+        error
+      );
+
+      res.status(500).send(
+        "The appointment could not be loaded."
+      );
+
+    }
+
+  }
+);
+
+
+app.post(
+  "/appointment-manage/cancel",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
+
+    const token =
+      cleanAppointmentValue(
+        req.body.token,
+        200
+      );
+
+    if (
+      !appointmentManageTokenIsValid(
+        sessionId,
+        token
+      )
+    ) {
+      return res.status(403).send(
+        "Invalid appointment management link."
+      );
+    }
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      if (
+        metadata.appointmentStatus ===
+        "canceled"
+      ) {
+        return sendPage(
+          res,
+          "Appointment Cancelled | Business Pro",
+          `
+            <h1>Appointment Cancelled</h1>
+            <p>This appointment has already been cancelled.</p>
+          `
+        );
+      }
+
+      await stripe.checkout.sessions.update(
+        session.id,
+        {
+          metadata: {
+            ...metadata,
+            appointmentStatus:
+              "canceled",
+            cancellationSource:
+              "Customer Cancellation",
+            canceledAt:
+              new Date().toISOString()
+          }
+        }
+      );
+
+      session =
+        await stripe.checkout.sessions.retrieve(
+          session.id
+        );
+
+      const appointment =
+        appointmentFromSession(session);
+
+      try {
+        if (appointment.smsConsent) {
+          await sendTwilioMessage(
+            appointment.phone,
+            `${appointment.shopName}: Your appointment with ${appointment.barberName} on ${appointment.appointmentDate} at ${appointment.appointmentTime} has been cancelled.`
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Cancellation SMS error:",
+          error
+        );
+      }
+
+      try {
+        await sendAppointmentCancellationEmail(
+          appointment,
+          session.id,
+          "Customer Cancellation"
+        );
+      } catch (error) {
+        console.error(
+          "Cancellation email error:",
+          error
+        );
+      }
+
+      sendPage(
+        res,
+        "Appointment Cancelled | Business Pro",
+        `
+          <h1>Appointment Cancelled ✓</h1>
+          <p>Your appointment has been cancelled.</p>
+          <p class="small">This test does not apply the final cancellation-fee/refund policy yet.</p>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Customer cancellation error:",
+        error
+      );
+
+      res.status(500).send(
+        "The appointment could not be cancelled."
+      );
+
+    }
+
+  }
+);
+
+
+app.post(
+  "/appointment-manage/reschedule",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
+
+    const token =
+      cleanAppointmentValue(
+        req.body.token,
+        200
+      );
+
+    if (
+      !appointmentManageTokenIsValid(
+        sessionId,
+        token
+      )
+    ) {
+      return res.status(403).send(
+        "Invalid appointment management link."
+      );
+    }
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      await stripe.checkout.sessions.update(
+        session.id,
+        {
+          metadata: {
+            ...metadata,
+            appointmentStatus:
+              "reschedule-requested",
+            rescheduleRequestedAt:
+              new Date().toISOString()
+          }
+        }
+      );
+
+      session =
+        await stripe.checkout.sessions.retrieve(
+          session.id
+        );
+
+      const appointment =
+        appointmentFromSession(session);
+
+      try {
+        await sendAppointmentCancellationEmail(
+          appointment,
+          session.id,
+          "Customer Reschedule Request"
+        );
+      } catch (error) {
+        console.error(
+          "Reschedule email error:",
+          error
+        );
+      }
+
+      const bookingUrl =
+        String(
+          process.env.CUSTOMER_BOOKING_URL ||
+          "https://villagebarber.businessprolocal.com/index.html"
+        );
+
+      sendPage(
+        res,
+        "Reschedule Appointment | Business Pro",
+        `
+          <h1>Reschedule Appointment</h1>
+          <p>Your reschedule request has been recorded.</p>
+          <p><a href="${bookingUrl}">Choose a new appointment</a></p>
+          <p class="small">For this test, choosing a new appointment creates the replacement booking. Full cross-device schedule synchronization will be handled in the next booking-sync step.</p>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Reschedule request error:",
+        error
+      );
+
+      res.status(500).send(
+        "The reschedule request could not be processed."
       );
 
     }
@@ -1669,10 +2595,10 @@ app.get(
 
     sendPage(
       res,
-      "Appointment Payment Cancelled | Business Pro",
+      "Card Setup Cancelled | Business Pro",
       `
-        <h1>Payment Not Completed</h1>
-        <p>No appointment was confirmed. Return to the appointment window and try again.</p>
+        <h1>Appointment Not Confirmed</h1>
+        <p>The secure card step was cancelled. No appointment was confirmed.</p>
         <p><strong>TEST MODE:</strong> No real money was charged.</p>
       `
     );
