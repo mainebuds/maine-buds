@@ -2555,21 +2555,28 @@ app.post(
         );
       }
 
-      const bookingUrl =
+      const bookingBaseUrl =
         String(
           process.env.CUSTOMER_BOOKING_URL ||
           "https://villagebarber.businessprolocal.com/index.html"
         );
 
-      sendPage(
-        res,
-        "Reschedule Appointment | Business Pro",
-        `
-          <h1>Reschedule Appointment</h1>
-          <p>Your reschedule request has been recorded.</p>
-          <p><a href="${bookingUrl}">Choose a new appointment</a></p>
-          <p class="small">For this test, choosing a new appointment creates the replacement booking. Full cross-device schedule synchronization will be handled in the next booking-sync step.</p>
-        `
+      const bookingUrl =
+        new URL(bookingBaseUrl);
+
+      bookingUrl.searchParams.set(
+        "booking",
+        "open"
+      );
+
+      bookingUrl.searchParams.set(
+        "reschedule",
+        "1"
+      );
+
+      return res.redirect(
+        303,
+        bookingUrl.toString()
       );
 
     } catch (error) {
