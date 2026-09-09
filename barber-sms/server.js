@@ -103,11 +103,12 @@ app.use((req, res, next) => {
 
 
 // ============================================================
-// BUSINESS OPEN / CLOSED STATUS
+// BUSINESS OPEN / CLOSED STATUS + SHOP CLOSURES
 // ============================================================
 
 let businessStatus = {
   isOpen: true,
+  closures: [],
   changedAt: "",
   changedBy: "Owner"
 };
@@ -120,17 +121,26 @@ app.get("/business-status", (req, res) => {
 });
 
 app.post("/business-status", (req, res) => {
-  const isOpen = req.body?.isOpen;
+  const hasOpenStatus =
+    typeof req.body?.isOpen === "boolean";
 
-  if (typeof isOpen !== "boolean") {
+  const hasClosures =
+    Array.isArray(req.body?.closures);
+
+  if (!hasOpenStatus && !hasClosures) {
     return res.status(400).json({
       success: false,
-      error: "isOpen must be true or false."
+      error: "Send isOpen, closures, or both."
     });
   }
 
   businessStatus = {
-    isOpen,
+    isOpen: hasOpenStatus
+      ? req.body.isOpen
+      : businessStatus.isOpen,
+    closures: hasClosures
+      ? req.body.closures
+      : businessStatus.closures,
     changedAt: new Date().toISOString(),
     changedBy: "Owner"
   };
