@@ -7,6 +7,59 @@ const app = express();
 
 
 // ============================================================
+// TABLET / MOBILE CHECKOUT LAUNCH HANDOFF
+// ============================================================
+
+const appointmentCheckoutLaunches =
+  new Map();
+
+function rememberAppointmentCheckoutLaunch(
+  bookingId,
+  session
+) {
+
+  appointmentCheckoutLaunches.set(
+    bookingId,
+    {
+      sessionId: session.id,
+      url: session.url,
+      expiresAt:
+        Date.now() +
+        (5 * 60 * 1000)
+    }
+  );
+
+}
+
+function getAppointmentCheckoutLaunch(
+  bookingId
+) {
+
+  const launch =
+    appointmentCheckoutLaunches.get(
+      bookingId
+    );
+
+  if (!launch) {
+    return null;
+  }
+
+  if (
+    !launch.expiresAt ||
+    launch.expiresAt < Date.now()
+  ) {
+    appointmentCheckoutLaunches.delete(
+      bookingId
+    );
+    return null;
+  }
+
+  return launch;
+
+}
+
+
+// ============================================================
 // BODY PARSING
 // ============================================================
 
@@ -1562,6 +1615,181 @@ app.post(
 );
 
 
+app.get(
+  "/appointment-launch",
+  (req, res) => {
+
+    const bookingId =
+      cleanAppointmentValue(
+        req.query.booking_id,
+        120
+      );
+
+    if (!bookingId) {
+      return sendPage(
+        res,
+        "Payment Unavailable | Business Pro",
+        `
+          <h1>Payment Could Not Be Opened</h1>
+          <p>The appointment reference is missing.</p>
+        `
+      );
+    }
+
+    const safeBookingId =
+      JSON.stringify(bookingId);
+
+    sendPage(
+      res,
+      "Opening Secure Payment | Business Pro",
+      `
+        <style>
+          body {
+            max-width: none;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: #f8fafc;
+          }
+
+          .launch-card {
+            width: min(90vw, 430px);
+            padding: 34px 26px;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+          }
+
+          .launch-card h1 {
+            margin: 0 0 12px;
+            font-size: 24px;
+          }
+
+          .launch-card p {
+            margin: 0;
+            color: #475569;
+          }
+        </style>
+
+        <div class="launch-card">
+          <h1>Opening Secure Payment</h1>
+          <p id="launch-message">Please wait a moment...</p>
+        </div>
+
+        <script>
+          (() => {
+
+            const bookingId =
+              ${safeBookingId};
+
+            const message =
+              document.getElementById(
+                "launch-message"
+              );
+
+            const startedAt =
+              Date.now();
+
+            async function checkLaunch() {
+
+              try {
+
+                const response =
+                  await fetch(
+                    "/appointment-launch-status?booking_id=" +
+                    encodeURIComponent(bookingId),
+                    { cache: "no-store" }
+                  );
+
+                const result =
+                  await response.json();
+
+                if (
+                  response.ok &&
+                  result.success &&
+                  result.ready &&
+                  result.url
+                ) {
+                  window.location.replace(
+                    result.url
+                  );
+                  return;
+                }
+
+              } catch (error) {
+                console.error(
+                  "Appointment launch check error:",
+                  error
+                );
+              }
+
+              if (
+                Date.now() - startedAt >
+                30000
+              ) {
+                message.textContent =
+                  "The secure payment page did not open. Return to the appointment page and try again.";
+                return;
+              }
+
+              setTimeout(
+                checkLaunch,
+                400
+              );
+
+            }
+
+            checkLaunch();
+
+          })();
+        </script>
+      `
+    );
+
+  }
+);
+
+
+app.get(
+  "/appointment-launch-status",
+  (req, res) => {
+
+    const bookingId =
+      cleanAppointmentValue(
+        req.query.booking_id,
+        120
+      );
+
+    if (!bookingId) {
+      return res.status(400).json({
+        success: false,
+        ready: false,
+        error:
+          "The appointment reference is missing."
+      });
+    }
+
+    const launch =
+      getAppointmentCheckoutLaunch(
+        bookingId
+      );
+
+    return res.json({
+      success: true,
+      ready: Boolean(launch),
+      sessionId:
+        launch?.sessionId || "",
+      url:
+        launch?.url || ""
+    });
+
+  }
+);
+
+
 app.post(
   "/create-appointment-checkout-session",
   async (req, res) => {
@@ -1720,6 +1948,11 @@ app.post(
           cancel_url:
             `${baseUrl}/appointment-payment-cancelled`
         });
+
+      rememberAppointmentCheckoutLaunch(
+        bookingId,
+        session
+      );
 
       return res.json({
         success: true,
@@ -1962,25 +2195,103 @@ app.get(
         res,
         "Choose Payment | Business Pro",
         `
-          <h1>Choose How You Want to Pay</h1>
-          <div class="notice">
-            <p><strong>Card saved securely in Stripe Test Mode.</strong></p>
-            <p><strong>${appointment.serviceName}</strong> with <strong>${appointment.barberName}</strong></p>
-            <p>${appointment.appointmentDate} at ${appointment.appointmentTime}</p>
-            <p>Appointment total: <strong>${amount}</strong></p>
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: rgba(15, 23, 42, 0.72);
+            }
+
+            .payment-choice-card {
+              width: min(92vw, 420px);
+              padding: 34px 28px 30px;
+              background: #ffffff;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+              text-align: center;
+            }
+
+            .payment-choice-card h1 {
+              margin: 0 0 26px;
+              font-size: 26px;
+              line-height: 1.15;
+              font-weight: 700;
+              color: #111827;
+            }
+
+            .payment-choice-card form {
+              margin: 0;
+            }
+
+            .payment-choice-card form + form {
+              margin-top: 14px;
+            }
+
+            .payment-choice-card button {
+              width: 100%;
+              min-height: 54px;
+              margin: 0;
+              padding: 14px 18px;
+              border: 0;
+              border-radius: 14px;
+              font-size: 17px;
+              font-weight: 700;
+              letter-spacing: 0.01em;
+              cursor: pointer;
+              transition: transform 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .payment-choice-card button:hover {
+              transform: translateY(-1px);
+            }
+
+            .payment-choice-card .pay-now {
+              background: #111827;
+              color: #ffffff;
+              box-shadow: 0 8px 18px rgba(17, 24, 39, 0.18);
+            }
+
+            .payment-choice-card .pay-store {
+              background: #f3f4f6;
+              color: #111827;
+              border: 1px solid #d1d5db;
+            }
+
+            @media (max-width: 480px) {
+              body {
+                padding: 16px;
+              }
+
+              .payment-choice-card {
+                width: 100%;
+                padding: 30px 20px 24px;
+                border-radius: 20px;
+              }
+
+              .payment-choice-card h1 {
+                font-size: 24px;
+              }
+            }
+          </style>
+
+          <div class="payment-choice-card">
+            <h1>Choose Payment</h1>
+
+            <form method="POST" action="/appointment-choice/pay-now">
+              <input type="hidden" name="sessionId" value="${session.id}">
+              <button class="pay-now" type="submit">PAY NOW</button>
+            </form>
+
+            <form method="POST" action="/appointment-choice/pay-at-store">
+              <input type="hidden" name="sessionId" value="${session.id}">
+              <button class="pay-store" type="submit">PAY AT STORE</button>
+            </form>
           </div>
-
-          <form method="POST" action="/appointment-choice/pay-now">
-            <input type="hidden" name="sessionId" value="${session.id}">
-            <button type="submit">PAY NOW BY CARD — ${amount}</button>
-          </form>
-
-          <form method="POST" action="/appointment-choice/pay-at-store">
-            <input type="hidden" name="sessionId" value="${session.id}">
-            <button type="submit">PAY AT STORE</button>
-          </form>
-
-          <p class="small">TEST MODE — no real money is charged.</p>
         `
       );
 
