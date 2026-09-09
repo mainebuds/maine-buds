@@ -1,3219 +1,2161 @@
 // TEST 2 — card first, then PAY NOW or PAY AT STORE, with manage links
-document.addEventListener("DOMContentLoaded", () => {
+const express = require("express");
+const Stripe = require("stripe");
+const crypto = require("crypto");
 
-  // ============================================================
-  // BUSINESS PRO BARBER TEMPLATE
-  // CUSTOMER WEBSITE ENGINE
-  // ============================================================
+const app = express();
 
-  const config = window.SHOP_CONFIG;
 
-  if (!config) {
-    console.error(
-      "SHOP_CONFIG was not found. Make sure shop-config.js loads before script.js."
-    );
-    return;
-  }
+// ============================================================
+// TABLET / MOBILE CHECKOUT LAUNCH HANDOFF
+// ============================================================
 
-  const shop = config.shop || {};
-  const services = Array.isArray(config.services)
-    ? config.services
-    : [];
-  const profiles = Array.isArray(config.barbers)
-    ? config.barbers
-    : [];
-  const bookingSettings = config.booking || {};
-  const smsSettings = config.sms || {};
+const appointmentCheckoutLaunches =
+  new Map();
 
-  const bookableBarbers = profiles.filter(
-    profile =>
-      profile.profileType !== "business-pro-local" &&
-      Array.isArray(profile.serviceIds) &&
-      profile.serviceIds.length > 0
+function rememberAppointmentCheckoutLaunch(
+  bookingId,
+  session
+) {
+
+  appointmentCheckoutLaunches.set(
+    bookingId,
+    {
+      sessionId: session.id,
+      url: session.url,
+      expiresAt:
+        Date.now() +
+        (5 * 60 * 1000)
+    }
   );
 
-  const APPOINTMENT_LENGTH =
-    Number(bookingSettings.appointmentLengthMinutes) || 30;
+}
 
-  const DAYS_AVAILABLE =
-    Number(bookingSettings.daysAvailableInAdvance) || 365;
+function getAppointmentCheckoutLaunch(
+  bookingId
+) {
 
-  const STORAGE_KEY =
-    bookingSettings.storageKey ||
-    "businessProProfessionalBarberTemplateBookings";
-
-  // Shared with the Business Pro Professional Owner Interface.
-  const TIME_OFF_STORAGE_KEY =
-    "businessProProfessionalBarberTemplateTimeOff";
-      
-  const BUSINESS_STATUS_URL =
-    "https://village-barber-sms.onrender.com/business-status";
-
-  let businessIsOpen = true;
-  const SMS_SERVER_URL =
-    smsSettings.serverUrl || "";
-
-  const APPOINTMENT_CHECKOUT_URL =
-    "https://village-barber-sms.onrender.com/create-appointment-checkout-session";
-
-  const APPOINTMENT_STATUS_URL =
-    "https://village-barber-sms.onrender.com/appointment-checkout-status";
-
-  const APPOINTMENT_NOTIFICATION_URL =
-    "https://village-barber-sms.onrender.com/send-paid-appointment-notifications";
-
-  const PHOTO_DB_NAME =
-    "businessProBarberTemplateUploads";
-
-  const PHOTO_STORE_NAME =
-    "profilePhotos";
-
-
-  // ============================================================
-  // PAGE ELEMENTS
-  // ============================================================
-
-  const shopName =
-    document.getElementById("shop-name");
-
-  const hero =
-    document.getElementById("home");
-
-  const heroTitle =
-    document.getElementById("hero-title");
-
-  const heroSubtitle =
-    document.getElementById("hero-subtitle");
-
-  const servicesList =
-    document.getElementById("services-list");
-
-  const barberSelector =
-    document.getElementById("barber-selector");
-
-  const shopAddressLine1 =
-    document.getElementById("shop-address-line1");
-
-  const shopAddressLine2 =
-    document.getElementById("shop-address-line2");
-
-  const shopPhoneLink =
-    document.getElementById("shop-phone-link");
-
-  const shopHours =
-    document.getElementById("shop-hours");
-
-  const footerShopName =
-    document.getElementById("footer-shop-name");
-
-  const profileModal =
-    document.getElementById("barber-profile-modal");
-
-  const profileContent =
-    document.getElementById("barber-profile-content");
-
-  const closeProfileButton =
-    document.getElementById("close-barber-profile");
-
-  const bookingModal =
-    document.getElementById("booking-modal");
-
-  const closeBookingButton =
-    document.getElementById("close-booking");
-
-  const barberSelect =
-    document.getElementById("barber-select");
-
-  const barberSelectLabel =
-    document.querySelector('label[for="barber-select"]');
-
-  const selectedBarberDisplay =
-    document.getElementById("selected-barber");
-
-  const serviceSelect =
-    document.getElementById("service");
-
-  const dateInput =
-    document.getElementById("appointment-date");
-
-  const bookingDateCalendar =
-    document.getElementById("booking-date-calendar");
-
-  const bookingDateGrid =
-    document.getElementById("booking-date-grid");
-
-  const bookingDateMonthLabel =
-    document.getElementById("booking-date-month-label");
-
-  const bookingDatePrev =
-    document.getElementById("booking-date-prev");
-
-  const bookingDateNext =
-    document.getElementById("booking-date-next");
-
-  const bookingDateNote =
-    document.getElementById("booking-date-note");
-
-  const timeSelect =
-    document.getElementById("appointment-time");
-
-  const nameInput =
-    document.getElementById("customer-name");
-
-  const phoneInput =
-    document.getElementById("customer-phone");
-
-  const smsConsent =
-    document.getElementById("sms-consent");
-
-  const confirmButton =
-    document.getElementById("confirm-booking");
-
-  const confirmationMessage =
-    document.getElementById("confirmation-message");
-
-  const smsPolicyLinks =
-    document.getElementById("sms-policy-links");
-
-  const privacyPolicyLink =
-    document.getElementById("privacy-policy-link");
-
-  const termsPolicyLink =
-    document.getElementById("terms-policy-link");
-
-  const ctaButton =
-    document.querySelector(".get-this-website-button");
-
-
-  let selectedBarberId = "";
-  let requestedServiceId = "";
-  let bookingCalendarMonth = new Date();
-  bookingCalendarMonth.setDate(1);
-  bookingCalendarMonth.setHours(0, 0, 0, 0);
-
-
-  // ============================================================
-  // START WEBSITE
-  // ============================================================
-
-  buildShopInformation();
-  buildServices();
-  buildProfileCards();
-  buildBarberSelect();
-  configureBookingCalendar();
-  configurePolicyLinks();
-  attachGeneralBookingButtons();
-  configureCtaScrollGlow();
-  openBookingFromUrl();
-
-  function openBookingFromUrl() {
-    const params =
-      new URLSearchParams(window.location.search);
-
-    const shouldOpenBooking =
-      params.get("booking") === "open" ||
-      params.get("reschedule") === "1";
-
-    if (!shouldOpenBooking) {
-      return;
-    }
-
-    openBookingModal(
-      params.get("barber") || "",
-      params.get("service") || ""
+  const launch =
+    appointmentCheckoutLaunches.get(
+      bookingId
     );
+
+  if (!launch) {
+    return null;
   }
 
-   // Refresh booking availability from the shared Business Pro server.
-  async function loadBusinessStatusFromServer() {
-    try {
-      const response =
-        await fetch(
-          BUSINESS_STATUS_URL,
-          {
-            cache: "no-store"
-          }
-        );
-
-      const result =
-        await response.json();
-
-      if (
-        response.ok &&
-        result.success &&
-        typeof result.isOpen === "boolean"
-      ) {
-        businessIsOpen =
-          result.isOpen;
-      }
-    } catch (error) {
-      console.error(
-        "Business status check error:",
-        error
-      );
-    }
+  if (
+    !launch.expiresAt ||
+    launch.expiresAt < Date.now()
+  ) {
+    appointmentCheckoutLaunches.delete(
+      bookingId
+    );
+    return null;
   }
 
-  async function refreshBookingAvailability() {
-    await loadBusinessStatusFromServer();
-    renderBookingDateCalendar();
-    updateAvailableTimes();
+  return launch;
+
+}
+
+
+// ============================================================
+// BODY PARSING
+// ============================================================
+
+app.use(express.json());
+
+app.use(
+  express.urlencoded({
+    extended: true
+  })
+);
+
+
+// ============================================================
+// CORS
+// ============================================================
+
+app.use((req, res, next) => {
+
+  res.setHeader(
+    "Access-Control-Allow-Origin",
+    "*"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
   }
 
-  window.addEventListener("storage", event => {
-    if (
-      event.key === STORAGE_KEY ||
-      event.key === TIME_OFF_STORAGE_KEY
-    ) {
-      refreshBookingAvailability();
-    }
+  next();
+
+});
+
+
+// ============================================================
+// BUSINESS OPEN / CLOSED STATUS
+// ============================================================
+
+let businessStatus = {
+  isOpen: true,
+  changedAt: "",
+  changedBy: "Owner"
+};
+
+app.get("/business-status", (req, res) => {
+  res.json({
+    success: true,
+    ...businessStatus
   });
+});
 
-  window.addEventListener(
-    "focus",
-    refreshBookingAvailability
-  );
+app.post("/business-status", (req, res) => {
+  const isOpen = req.body?.isOpen;
 
-  document.addEventListener(
-    "visibilitychange",
-    () => {
-      if (!document.hidden) {
-        refreshBookingAvailability();
-      }
-    }
-  );
-
-  refreshBookingAvailability(); 
-
-
-  // ============================================================
-  // SHOP INFORMATION
-  // ============================================================
-
-  function buildShopInformation() {
-
-    document.title =
-      shop.pageTitle ||
-      shop.name ||
-      "Business Pro Barber Demo";
-
-    if (shopName) {
-      shopName.textContent =
-        shop.name || "BARBER SHOP";
-    }
-
-    if (heroTitle) {
-      heroTitle.textContent =
-        shop.heroTitle ||
-        "LOOK SHARP. FEEL SHARP.";
-    }
-
-    if (heroSubtitle) {
-      heroSubtitle.textContent =
-        shop.heroSubtitle || "";
-    }
-
-    if (hero) {
-
-      if (shop.heroImage) {
-        hero.style.backgroundImage = `
-          linear-gradient(
-            rgba(0, 0, 0, 0.42),
-            rgba(0, 0, 0, 0.42)
-          ),
-          url("${escapeCssUrl(shop.heroImage)}")
-        `;
-      } else {
-        hero.classList.add("hero-no-image");
-      }
-
-    }
-
-    if (shopAddressLine1) {
-      shopAddressLine1.textContent =
-        shop.addressLine1 || "";
-    }
-
-    if (shopAddressLine2) {
-      shopAddressLine2.textContent =
-        shop.addressLine2 || "";
-    }
-
-    if (shopPhoneLink) {
-      shopPhoneLink.textContent =
-        shop.phoneDisplay || "";
-
-      shopPhoneLink.href =
-        shop.phoneLink
-          ? `tel:${shop.phoneLink}`
-          : "#";
-    }
-
-    if (footerShopName) {
-      footerShopName.textContent =
-        shop.name || "Barber Shop";
-    }
-
-    buildHours();
-
-  }
-
-
-  function buildHours() {
-
-    if (!shopHours) {
-      return;
-    }
-
-    shopHours.innerHTML = "";
-
-    if (
-      !Array.isArray(shop.hours) ||
-      shop.hours.length === 0
-    ) {
-      return;
-    }
-
-    const heading =
-      document.createElement("h3");
-
-    heading.textContent =
-      "Hours";
-
-    shopHours.appendChild(heading);
-
-    shop.hours.forEach(item => {
-
-      const row =
-        document.createElement("p");
-
-      row.innerHTML = `
-        <strong>${escapeHTML(item.days)}</strong>:
-        ${escapeHTML(item.hours)}
-      `;
-
-      shopHours.appendChild(row);
-
+  if (typeof isOpen !== "boolean") {
+    return res.status(400).json({
+      success: false,
+      error: "isOpen must be true or false."
     });
-
   }
 
+  businessStatus = {
+    isOpen,
+    changedAt: new Date().toISOString(),
+    changedBy: "Owner"
+  };
 
-  // ============================================================
-  // CLICKABLE SERVICE CARDS
-  // ============================================================
+  res.json({
+    success: true,
+    ...businessStatus
+  });
+});
 
-  function buildServices() {
 
-    if (!servicesList) {
-      return;
-    }
+// ============================================================
+// PAGE TEMPLATE
+// ============================================================
 
-    servicesList.innerHTML = "";
+function sendPage(res, title, content) {
 
-    services.forEach(service => {
+  res.type("html").send(`
+    <!DOCTYPE html>
 
-      const card =
-        document.createElement("button");
+    <html lang="en">
 
-      card.type =
-        "button";
+    <head>
 
-      card.className =
-        "service-card";
+      <meta charset="UTF-8">
 
-      card.setAttribute(
-        "aria-label",
-        `Book ${service.name} for ${formatPrice(service.price)}`
-      );
+      <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+      >
 
-          card.innerHTML = `
-        <div class="service-card-icon" data-service-icon="${escapeAttribute(service.id)}"></div>
+      <title>${title}</title>
 
-        <h3>
-          ${escapeHTML(service.name)}
-        </h3>
+      <style>
+
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          font-family: Arial, sans-serif;
+          max-width: 820px;
+          margin: 40px auto;
+          padding: 20px;
+          line-height: 1.6;
+          color: #222;
+          background: #fff;
+        }
+
+        h1 {
+          margin-bottom: 12px;
+        }
+
+        h2 {
+          margin-top: 32px;
+        }
+
+        a {
+          color: #174ea6;
+        }
+
+        .notice {
+          margin: 25px 0;
+          padding: 18px;
+          border: 1px solid #bbb;
+          border-radius: 6px;
+        }
+
+        .links {
+          margin-top: 35px;
+          padding-top: 20px;
+          border-top: 1px solid #ddd;
+        }
+
+        label {
+          display: block;
+          margin-top: 18px;
+        }
+
+        input,
+        select {
+          width: 100%;
+          max-width: 420px;
+          padding: 11px;
+          margin-top: 6px;
+          font-size: 16px;
+        }
+
+        .consent-box {
+          margin-top: 24px;
+          padding: 18px;
+          border: 2px solid #555;
+          border-radius: 6px;
+        }
+
+        .consent-box label {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          margin: 0;
+        }
+
+        .consent-box input {
+          width: auto;
+          margin-top: 6px;
+        }
+
+        button {
+          margin-top: 24px;
+          padding: 12px 20px;
+          font-size: 16px;
+          cursor: pointer;
+        }
+
+        .small {
+          font-size: 14px;
+        }
+
+      </style>
+
+    </head>
+
+    <body>
+
+      ${content}
+
+    </body>
+
+    </html>
+  `);
+
+}
+
+
+// ============================================================
+// BUSINESS PRO SMS HOME
+// ============================================================
+
+app.get("/", (req, res) => {
+
+  sendPage(
+    res,
+    "Business Pro SMS",
+    `
+
+      <h1>Business Pro SMS</h1>
+
+      <p>
+        Business Pro SMS provides appointment booking and
+        transactional SMS notification tools for
+        appointment-based businesses.
+      </p>
+
+      <p>
+        Customers who voluntarily opt in may receive
+        appointment confirmations, reminders, scheduling
+        updates, and cancellation notifications.
+      </p>
+
+
+      <h2>Business Pro SMS Messaging Program</h2>
+
+      <div class="notice">
 
         <p>
-          ${formatPrice(service.price)}
+          Customers may receive up to 6 SMS messages per
+          appointment, depending on appointment activity.
         </p>
 
-        <span class="service-card-arrow" aria-hidden="true">
-          ›
-        </span>
-      `;
+        <p>
+          Message and data rates may apply.
+        </p>
 
-      card.addEventListener(
-        "click",
-        () => {
-          openBookingModal(
-            "",
-            service.id
-          );
-        }
-      );
+        <p>
+          Reply STOP to opt out.
+          Reply HELP for help.
+        </p>
 
-      servicesList.appendChild(card);
-
-    });
-
-  }
-
-
-  // ============================================================
-  // PROFILE CARDS
-  // ============================================================
-
-  function buildProfileCards() {
-
-    if (!barberSelector) {
-      return;
-    }
-
-    barberSelector.innerHTML = "";
-
-    if (profiles.length === 0) {
-      barberSelector.innerHTML =
-        "<p>No profiles have been added yet.</p>";
-      return;
-    }
-
-    profiles.forEach(profile => {
-
-      const card =
-        document.createElement("button");
-
-      card.type =
-        "button";
-
-      card.className =
-        "barber-selector-card";
-
-      if (
-        profile.profileType ===
-        "business-pro-local"
-      ) {
-        card.classList.add(
-          "business-pro-profile-card"
-        );
-      }
-
-      card.dataset.barberId =
-        profile.id;
-
-      const specialty =
-        profile.cardSpecialty
-          ? `
-              <p class="barber-card-specialty">
-                ${escapeHTML(profile.cardSpecialty)}
-              </p>
-            `
-          : "";
-
-      card.innerHTML = `
-        ${buildProfilePhoto(profile, "small")}
-
-        <h3>
-          ${escapeHTML(profile.name)}
-        </h3>
-
-        ${specialty}
-      `;
-
-      card.addEventListener(
-        "click",
-        () => {
-          openProfile(profile.id);
-        }
-      );
-
-      barberSelector.appendChild(card);
-
-    });
-
-  }
-
-
-  // ============================================================
-  // OPEN PROFILE
-  // ============================================================
-
-  function openProfile(profileId) {
-
-    const profile =
-      getProfileById(profileId);
-
-    if (!profile || !profileModal || !profileContent) {
-      return;
-    }
-
-    if (
-      profile.profileType ===
-      "business-pro-local"
-    ) {
-      buildBusinessProProfile(profile);
-    } else {
-      buildBarberProfile(profile);
-    }
-
-    profileModal.classList.add("open");
-    document.body.style.overflow = "hidden";
-
-  }
-
-
-  function buildBarberProfile(barber) {
-
-    const specialties =
-      Array.isArray(barber.specialties)
-        ? barber.specialties.join(" • ")
-        : "";
-
-    profileContent.innerHTML = `
-      <div class="barber-popup-profile">
-
-        <div class="barber-popup-header">
-
-          <div class="barber-popup-action">
-
-            ${buildProfilePhoto(barber, "large")}
-
-            <button
-              type="button"
-              class="book-button barber-popup-book-button"
-              id="barber-popup-book-button"
-            >
-              Schedule Appointment
-            </button>
-
-          </div>
-
-          <div class="barber-popup-info">
-
-            <h2>
-              ${escapeHTML(barber.name)}
-            </h2>
-
-            ${
-              barber.cardSpecialty
-                ? `
-                    <p class="barber-popup-tagline">
-                      ${escapeHTML(barber.cardSpecialty)}
-                    </p>
-                  `
-                : ""
-            }
-
-            ${
-              specialties
-                ? `
-                    <p class="barber-popup-specialties">
-                      ${escapeHTML(specialties)}
-                    </p>
-                  `
-                : ""
-            }
-
-            ${
-              barber.bio
-                ? `
-                    <p class="barber-popup-bio">
-                      ${escapeHTML(barber.bio)}
-                    </p>
-                  `
-                : ""
-            }
-
-          </div>
-
-        </div>
-
-
-        <div class="barber-popup-work">
-
-          <h3>
-            ${escapeHTML(barber.name)}'s Work
-          </h3>
-
-          <p class="gallery-help-text">
-            Add up to three examples of this barber's work.
-          </p>
-
-          <div
-            class="barber-gallery"
-            id="gallery-${escapeAttribute(barber.id)}"
-          >
-          </div>
-
-        </div>
+        <p>
+          SMS consent is voluntary and is not required to
+          book an appointment or purchase goods or services.
+        </p>
 
       </div>
-    `;
-
-    buildBarberGallery(barber);
-
-    const bookButton =
-      document.getElementById(
-        "barber-popup-book-button"
-      );
-
-    if (bookButton) {
-      bookButton.addEventListener(
-        "click",
-        () => {
-          closeProfile(false);
-          openBookingModal(barber.id);
-        }
-      );
-    }
-
-  }
 
 
-  function buildBusinessProProfile(profile) {
+      <h2>How Customers Opt In</h2>
 
-    const specialties =
-      Array.isArray(profile.specialties)
-        ? profile.specialties
-        : [];
+      <p>
+        Customers enter their mobile phone number during the
+        online appointment booking process.
+      </p>
 
-    const action =
-      profile.actionButton || {};
+      <p>
+        Customers who want SMS appointment notifications
+        separately check an unchecked SMS consent checkbox.
+      </p>
 
-    const actionText =
-      action.text || "Get This Website";
+      <p>
+        The checkbox is optional.
+      </p>
 
-    const actionHref =
-      action.href || "join.html";
 
-    profileContent.innerHTML = `
-      <div class="barber-popup-profile business-pro-popup-profile">
+      <div class="links">
 
-        <div class="barber-popup-header">
-
-          <div class="barber-popup-action">
-            ${buildProfilePhoto(profile, "large")}
-          </div>
-
-          <div class="barber-popup-info">
-
-            <p class="business-pro-popup-eyebrow">
-              BUSINESS PRO LOCAL
-            </p>
-
-            <h2>
-              ${escapeHTML(profile.name)}
-            </h2>
-
-            ${
-              profile.cardSpecialty
-                ? `
-                    <p class="barber-popup-tagline">
-                      ${escapeHTML(profile.cardSpecialty)}
-                    </p>
-                  `
-                : ""
-            }
-
-            ${
-              profile.bio
-                ? `
-                    <p class="barber-popup-bio">
-                      ${escapeHTML(profile.bio)}
-                    </p>
-                  `
-                : ""
-            }
-
-          </div>
-
-        </div>
-
-        <div class="business-pro-services">
-
-          <h3>
-            Business Pro Services
-          </h3>
-
-          <ul>
-            ${specialties
-              .map(
-                item => `
-                  <li>
-                    ${escapeHTML(item)}
-                  </li>
-                `
-              )
-              .join("")}
-          </ul>
-
-          <a
-            class="get-this-website-button business-pro-popup-button"
-            href="${escapeAttribute(actionHref)}"
-          >
-            ${escapeHTML(actionText)}
-            <span aria-hidden="true">
-              &rarr;
-            </span>
+        <p>
+          <a href="/sms-consent">
+            View SMS Opt-In Form
           </a>
+        </p>
 
-        </div>
+        <p>
+          <a href="/privacy">
+            Privacy Policy
+          </a>
+        </p>
+
+        <p>
+          <a href="/terms">
+            Terms & Conditions
+          </a>
+        </p>
 
       </div>
-    `;
 
-  }
+    `
+  );
 
-
-  // ============================================================
-  // THREE-SLOT BARBER GALLERY
-  // ============================================================
-
-  function buildBarberGallery(barber) {
-
-    const galleryElement =
-      document.getElementById(
-        `gallery-${barber.id}`
-      );
-
-    if (!galleryElement) {
-      return;
-    }
-
-    galleryElement.innerHTML = "";
-
-    const configuredGallery =
-      Array.isArray(barber.gallery)
-        ? barber.gallery
-        : [];
-
-    const requestedSlots =
-      Number(barber.uploadSlots);
-
-    const slotCount =
-      Number.isFinite(requestedSlots) &&
-      requestedSlots > 0
-        ? Math.min(
-            3,
-            Math.floor(requestedSlots)
-          )
-        : Math.min(
-            3,
-            Math.max(configuredGallery.length, 0)
-          );
-
-    if (slotCount === 0) {
-      galleryElement.innerHTML = `
-        <div class="gallery-empty">
-          <p>
-            Haircut photos will appear here.
-          </p>
-        </div>
-      `;
-      return;
-    }
-
-    for (
-      let slotIndex = 0;
-      slotIndex < slotCount;
-      slotIndex += 1
-    ) {
-
-      const configuredPhoto =
-        configuredGallery[slotIndex] || null;
-
-      const uploadSlot =
-        createGalleryUploadSlot(
-          barber,
-          slotIndex,
-          configuredPhoto
-        );
-
-      galleryElement.appendChild(uploadSlot);
-
-      setupGalleryUpload(
-        barber,
-        slotIndex,
-        uploadSlot,
-        configuredPhoto
-      );
-
-    }
-
-  }
+});
 
 
-  function createGalleryUploadSlot(
-    barber,
-    slotIndex,
-    configuredPhoto
-  ) {
+// ============================================================
+// PRIVACY POLICY
+// ============================================================
 
-    const slot =
-      document.createElement("div");
+app.get("/privacy", (req, res) => {
 
-    slot.className =
-      "gallery-upload-slot";
+  sendPage(
+    res,
+    "Privacy Policy | Business Pro SMS",
+    `
 
-    const slotNumber =
-      slotIndex + 1;
+      <h1>Business Pro SMS Privacy Policy</h1>
 
-    const configuredCaption =
-      configuredPhoto && configuredPhoto.caption
-        ? configuredPhoto.caption
-        : `Haircut Photo ${slotNumber}`;
+      <p>
+        This Privacy Policy applies to the Business Pro SMS
+        appointment booking and transactional SMS messaging
+        program.
+      </p>
 
-    slot.innerHTML = `
-      <input
-        type="file"
-        class="gallery-upload-input"
-        accept="image/*"
-        hidden
-      >
 
-      <div
-        class="gallery-upload-empty"
-        role="button"
-        tabindex="0"
-        aria-label="Add haircut photo ${slotNumber} for ${escapeAttribute(barber.name)}"
-      >
+      <h2>Information We Collect</h2>
 
-        <span class="gallery-upload-plus">
-          +
-        </span>
+      <p>
+        Business Pro SMS may collect information voluntarily
+        provided by customers when they use the appointment
+        booking service.
+      </p>
 
+      <p>
+        This information may include:
+      </p>
+
+      <ul>
+
+        <li>Name</li>
+
+        <li>Mobile phone number</li>
+
+        <li>Appointment date and time</li>
+
+        <li>Appointment service information</li>
+
+        <li>SMS opt-in and consent status</li>
+
+      </ul>
+
+
+      <h2>How We Use Information</h2>
+
+      <p>
+        Customer information is used only as necessary to
+        provide appointment booking and appointment-related
+        communications requested by the customer.
+      </p>
+
+      <p>
+        SMS messages may include appointment confirmations,
+        reminders, scheduling updates, and cancellation
+        notifications.
+      </p>
+
+
+      <h2>Mobile Information and SMS Consent</h2>
+
+      <p>
         <strong>
-          Add Haircut Photo ${slotNumber}
+          Business Pro SMS does not share, sell, rent, or
+          provide mobile phone numbers, SMS opt-in data, or
+          messaging consent to third parties or affiliates
+          for marketing or promotional purposes.
         </strong>
+      </p>
 
-        <span>
-          Click to choose a photo
-        </span>
+      <p>
+        Mobile information and SMS consent are used only for
+        the Business Pro SMS messaging program for which the
+        customer voluntarily opted in.
+      </p>
 
-        <small>
-          Or drag and drop here
-        </small>
+      <p>
+        SMS consent is not transferred to another business,
+        sender, third party, affiliate, or lead generator for
+        marketing or promotional purposes.
+      </p>
+
+
+      <h2>SMS Messaging Disclosures</h2>
+
+      <p>
+        Customers may receive up to 6 SMS messages per
+        appointment, depending on appointment activity.
+      </p>
+
+      <p>
+        Message and data rates may apply.
+      </p>
+
+      <p>
+        Reply STOP to opt out of SMS messages.
+      </p>
+
+      <p>
+        Reply HELP for help.
+      </p>
+
+      <p>
+        SMS consent is voluntary and is not required to
+        book an appointment or purchase goods or services.
+      </p>
+
+
+      <h2>Customer Choice</h2>
+
+      <p>
+        Customers who do not consent to SMS messaging may
+        still complete the appointment booking process.
+      </p>
+
+
+      <div class="links">
+
+        <p>
+          <a href="/sms-consent">
+            SMS Opt-In Form
+          </a>
+        </p>
+
+        <p>
+          <a href="/terms">
+            Terms & Conditions
+          </a>
+        </p>
+
+        <p>
+          <a href="/">
+            Business Pro SMS Home
+          </a>
+        </p>
 
       </div>
 
-      <div
-        class="gallery-upload-preview"
-        hidden
+    `
+  );
+
+});
+
+
+// ============================================================
+// TERMS & CONDITIONS
+// ============================================================
+
+app.get("/terms", (req, res) => {
+
+  sendPage(
+    res,
+    "Terms & Conditions | Business Pro SMS",
+    `
+
+      <h1>Business Pro SMS Terms & Conditions</h1>
+
+      <p>
+        These Terms & Conditions apply to the Business Pro SMS
+        transactional appointment messaging program.
+      </p>
+
+
+      <h2>Program Description</h2>
+
+      <p>
+        Customers who voluntarily opt in may receive
+        appointment-related SMS messages from Business Pro SMS.
+      </p>
+
+      <p>
+        Messages may include:
+      </p>
+
+      <ul>
+
+        <li>Appointment confirmations</li>
+
+        <li>Appointment reminders</li>
+
+        <li>Scheduling updates</li>
+
+        <li>Cancellation notifications</li>
+
+      </ul>
+
+
+      <h2>SMS Consent</h2>
+
+      <p>
+        Customers opt in by voluntarily providing their mobile
+        phone number and separately checking an unchecked SMS
+        consent checkbox during the online appointment booking
+        process.
+      </p>
+
+      <p>
+        SMS consent is optional.
+      </p>
+
+      <p>
+        SMS consent is not required to book an appointment or
+        purchase goods or services.
+      </p>
+
+
+      <h2>Message Frequency</h2>
+
+      <p>
+        Customers may receive up to 6 SMS messages per
+        appointment, depending on appointment activity.
+      </p>
+
+
+      <h2>Message and Data Rates</h2>
+
+      <p>
+        Message and data rates may apply according to the
+        customer's wireless carrier and mobile plan.
+      </p>
+
+
+      <h2>Opt Out</h2>
+
+      <p>
+        Reply STOP at any time to opt out of SMS messages.
+      </p>
+
+
+      <h2>Help</h2>
+
+      <p>
+        Reply HELP for help.
+      </p>
+
+
+      <h2>Privacy</h2>
+
+      <p>
+        Business Pro SMS does not share, sell, rent, or provide
+        mobile phone numbers, SMS opt-in data, or messaging
+        consent to third parties or affiliates for marketing or
+        promotional purposes.
+      </p>
+
+      <p>
+        Read the full Privacy Policy:
+      </p>
+
+      <p>
+        <a href="/privacy">
+          https://village-barber-sms.onrender.com/privacy
+        </a>
+      </p>
+
+
+      <div class="links">
+
+        <p>
+          <a href="/sms-consent">
+            SMS Opt-In Form
+          </a>
+        </p>
+
+        <p>
+          <a href="/">
+            Business Pro SMS Home
+          </a>
+        </p>
+
+      </div>
+
+    `
+  );
+
+});
+
+
+// ============================================================
+// SMS OPT-IN FORM
+// ============================================================
+
+app.get("/sms-consent", (req, res) => {
+
+  sendPage(
+    res,
+    "SMS Opt-In | Business Pro SMS",
+    `
+
+      <h1>Business Pro SMS Appointment Booking</h1>
+
+      <p>
+        This public form demonstrates the SMS consent process
+        used with the Business Pro SMS appointment booking
+        workflow.
+      </p>
+
+
+      <form
+        method="POST"
+        action="/sms-consent-demo"
       >
 
-        <img
-          alt="${escapeAttribute(configuredCaption)}"
+        <label for="customer-name">
+          Customer Name
+        </label>
+
+        <input
+          id="customer-name"
+          name="customerName"
+          type="text"
+          placeholder="Enter your name"
         >
 
-        <div class="gallery-upload-actions">
 
-          <span class="gallery-upload-caption">
-            ${escapeHTML(configuredCaption)}
-          </span>
+        <label for="mobile-phone">
+          Mobile Phone
+        </label>
 
-          <button
-            type="button"
-            class="gallery-replace-photo"
-          >
-            Replace Photo
-          </button>
+        <input
+          id="mobile-phone"
+          name="phone"
+          type="tel"
+          placeholder="(207) 555-0123"
+        >
+
+
+        <label for="appointment-date">
+          Appointment Date
+        </label>
+
+        <input
+          id="appointment-date"
+          name="appointmentDate"
+          type="date"
+        >
+
+
+        <label for="appointment-time">
+          Appointment Time
+        </label>
+
+        <input
+          id="appointment-time"
+          name="appointmentTime"
+          type="time"
+        >
+
+
+        <div class="consent-box">
+
+          <label>
+
+            <input
+              type="checkbox"
+              name="smsConsent"
+              value="yes"
+            >
+
+            <span>
+
+              By checking this box, I agree to receive
+              transactional SMS messages from
+              <strong>Business Pro SMS</strong> regarding
+              appointment confirmations, reminders, scheduling
+              updates, and cancellation notifications.
+
+              I may receive up to 6 SMS messages per appointment,
+              depending on appointment activity.
+
+              Message and data rates may apply.
+
+              Reply STOP to opt out.
+              Reply HELP for help.
+
+              SMS consent is optional and is not required to
+              book an appointment or purchase goods or services.
+
+              <a href="/privacy">
+                Privacy Policy
+              </a>
+
+              |
+
+              <a href="/terms">
+                Terms & Conditions
+              </a>
+
+            </span>
+
+          </label>
 
         </div>
 
+
+        <button type="submit">
+          Submit Appointment Form
+        </button>
+
+      </form>
+
+
+      <p class="small">
+
+        The SMS checkbox above is unchecked by default.
+        Customers may submit the appointment form without
+        selecting SMS notifications.
+
+      </p>
+
+
+      <div class="links">
+
+        <p>
+          <a href="/privacy">
+            Privacy Policy
+          </a>
+        </p>
+
+        <p>
+          <a href="/terms">
+            Terms & Conditions
+          </a>
+        </p>
+
+        <p>
+          <a href="/">
+            Business Pro SMS Home
+          </a>
+        </p>
+
       </div>
-    `;
 
-    return slot;
+    `
+  );
+
+});
+
+
+// ============================================================
+// DEMONSTRATE OPTIONAL CONSENT
+// ============================================================
+
+app.post(
+  "/sms-consent-demo",
+  (req, res) => {
+
+    const selectedSMS =
+      req.body.smsConsent === "yes";
+
+
+    sendPage(
+      res,
+      "Appointment Form Submitted | Business Pro SMS",
+      `
+
+        <h1>Appointment Form Submitted</h1>
+
+        <p>
+          This page demonstrates that appointment booking can
+          be completed whether or not SMS consent is selected.
+        </p>
+
+
+        <div class="notice">
+
+          <strong>SMS Notification Selection:</strong>
+
+          <p>
+            ${
+              selectedSMS
+                ? "SMS notifications were voluntarily selected."
+                : "SMS notifications were not selected. The appointment form was still accepted."
+            }
+          </p>
+
+        </div>
+
+
+        <p>
+          <a href="/sms-consent">
+            Return to SMS Opt-In Form
+          </a>
+        </p>
+
+        <p>
+          <a href="/privacy">
+            Privacy Policy
+          </a>
+        </p>
+
+        <p>
+          <a href="/terms">
+            Terms & Conditions
+          </a>
+        </p>
+
+      `
+    );
+
+  }
+);
+
+
+// ============================================================
+// APPOINTMENT PAYMENT + NOTIFICATIONS
+// ============================================================
+
+function normalizePhone(phone) {
+
+  let digits =
+    String(phone || "")
+      .replace(/\D/g, "");
+
+  if (digits.length === 10) {
+    digits = "1" + digits;
+  }
+
+  return digits;
+
+}
+
+
+function cleanAppointmentValue(
+  value,
+  maxLength = 300
+) {
+
+  return String(value || "")
+    .trim()
+    .slice(0, maxLength);
+
+}
+
+
+function getStripeTestClient() {
+
+  const key =
+    process.env.STRIPE_TEST_SECRET_KEY ||
+    process.env.STRIPE_SECRET_KEY ||
+    "";
+
+  if (
+    !key ||
+    !key.startsWith("sk_test_")
+  ) {
+
+    throw new Error(
+      "Stripe appointment testing requires a Stripe test secret key."
+    );
 
   }
 
+  return new Stripe(key);
 
-  function setupGalleryUpload(
-    barber,
-    slotIndex,
-    uploadSlot,
-    configuredPhoto
-  ) {
+}
 
-    const input =
-      uploadSlot.querySelector(
-        ".gallery-upload-input"
-      );
 
-    const emptyState =
-      uploadSlot.querySelector(
-        ".gallery-upload-empty"
-      );
+function getRequestBaseUrl(req) {
 
-    const replaceButton =
-      uploadSlot.querySelector(
-        ".gallery-replace-photo"
-      );
+  const configured =
+    String(
+      process.env.PUBLIC_BASE_URL ||
+      ""
+    ).trim();
 
-    if (
-      !input ||
-      !emptyState ||
-      !replaceButton
-    ) {
-      return;
-    }
+  if (configured) {
+    return configured.replace(/\/$/, "");
+  }
 
-    const choosePhoto = () => {
-      input.click();
-    };
-
-    emptyState.addEventListener(
-      "click",
-      choosePhoto
-    );
-
-    emptyState.addEventListener(
-      "keydown",
-      event => {
-        if (
-          event.key === "Enter" ||
-          event.key === " "
-        ) {
-          event.preventDefault();
-          choosePhoto();
-        }
-      }
-    );
-
-    replaceButton.addEventListener(
-      "click",
-      choosePhoto
-    );
-
-    input.addEventListener(
-      "change",
-      () => {
-
-        const file =
-          input.files &&
-          input.files[0];
-
-        if (file) {
-          handleGalleryFile(
-            barber,
-            slotIndex,
-            uploadSlot,
-            file
-          );
-        }
-
-        input.value = "";
-
-      }
-    );
-
-    [
-      "dragenter",
-      "dragover"
-    ].forEach(eventName => {
-      emptyState.addEventListener(
-        eventName,
-        event => {
-          event.preventDefault();
-          emptyState.classList.add(
-            "drag-over"
-          );
-        }
-      );
-    });
-
-    [
-      "dragleave",
-      "drop"
-    ].forEach(eventName => {
-      emptyState.addEventListener(
-        eventName,
-        event => {
-          event.preventDefault();
-          emptyState.classList.remove(
-            "drag-over"
-          );
-        }
-      );
-    });
-
-    emptyState.addEventListener(
-      "drop",
-      event => {
-
-        const file =
-          event.dataTransfer &&
-          event.dataTransfer.files &&
-          event.dataTransfer.files[0];
-
-        if (file) {
-          handleGalleryFile(
-            barber,
-            slotIndex,
-            uploadSlot,
-            file
-          );
-        }
-
-      }
-    );
-
-    loadSavedGalleryPhoto(
-      barber.id,
-      slotIndex
+  const forwardedProto =
+    String(
+      req.headers["x-forwarded-proto"] ||
+      ""
     )
-      .then(savedPhoto => {
+      .split(",")[0]
+      .trim();
 
-        if (savedPhoto) {
-          showGalleryPhoto(
-            uploadSlot,
-            savedPhoto
-          );
-          return;
-        }
+  const protocol =
+    forwardedProto ||
+    req.protocol ||
+    "https";
 
-        if (
-          configuredPhoto &&
-          configuredPhoto.image
-        ) {
-          showGalleryPhoto(
-            uploadSlot,
-            configuredPhoto.image
-          );
-        }
+  return `${protocol}://${req.get("host")}`;
 
-      })
-      .catch(error => {
-        console.warn(
-          "Saved gallery photo could not be loaded:",
-          error
-        );
+}
 
-        if (
-          configuredPhoto &&
-          configuredPhoto.image
-        ) {
-          showGalleryPhoto(
-            uploadSlot,
-            configuredPhoto.image
-          );
-        }
-      });
+
+async function sendTwilioMessage(
+  phone,
+  messageBody
+) {
+
+  const {
+    TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN,
+    TWILIO_MESSAGING_SERVICE_SID,
+    TWILIO_PHONE_NUMBER,
+    TWILIO_FROM_NUMBER
+  } = process.env;
+
+  if (
+    !TWILIO_ACCOUNT_SID ||
+    !TWILIO_AUTH_TOKEN
+  ) {
+    throw new Error(
+      "Twilio SMS configuration is incomplete."
+    );
+  }
+
+  const requestedPhone =
+    normalizePhone(phone);
+
+  if (!requestedPhone) {
+    throw new Error(
+      "A valid customer phone number is required."
+    );
+  }
+
+  const twilioURL =
+    `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+
+  const authorization =
+    Buffer.from(
+      `${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`
+    ).toString("base64");
+
+  const formData =
+    new URLSearchParams();
+
+  formData.append(
+    "To",
+    `+${requestedPhone}`
+  );
+
+  formData.append(
+    "Body",
+    messageBody
+  );
+
+  if (TWILIO_MESSAGING_SERVICE_SID) {
+
+    formData.append(
+      "MessagingServiceSid",
+      TWILIO_MESSAGING_SERVICE_SID
+    );
+
+  } else {
+
+    const senderNumber =
+      TWILIO_PHONE_NUMBER ||
+      TWILIO_FROM_NUMBER;
+
+    if (!senderNumber) {
+      throw new Error(
+        "A Twilio sender number or Messaging Service SID has not been configured."
+      );
+    }
+
+    formData.append(
+      "From",
+      senderNumber
+    );
 
   }
 
-
-  function handleGalleryFile(
-    barber,
-    slotIndex,
-    uploadSlot,
-    file
-  ) {
-
-    if (
-      !file ||
-      !file.type ||
-      !file.type.startsWith("image/")
-    ) {
-      window.alert(
-        "Please choose an image file."
-      );
-      return;
-    }
-
-    const MAX_IMAGE_SIZE =
-      12 * 1024 * 1024;
-
-    if (file.size > MAX_IMAGE_SIZE) {
-      window.alert(
-        "Please choose an image smaller than 12 MB."
-      );
-      return;
-    }
-
-    showGalleryPhoto(
-      uploadSlot,
-      file
+  const twilioResponse =
+    await fetch(
+      twilioURL,
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            `Basic ${authorization}`,
+          "Content-Type":
+            "application/x-www-form-urlencoded"
+        },
+        body:
+          formData.toString()
+      }
     );
 
-    saveGalleryPhoto(
-      barber.id,
-      slotIndex,
-      file
-    ).catch(error => {
-      console.warn(
-        "Gallery photo could not be saved:",
+  const result =
+    await twilioResponse.json();
+
+  if (!twilioResponse.ok) {
+
+    console.error(
+      "Twilio SMS error:",
+      result
+    );
+
+    throw new Error(
+      result.message ||
+      "Twilio rejected the SMS request."
+    );
+
+  }
+
+  return result;
+
+}
+
+
+async function sendAppointmentEmail(
+  appointment,
+  sessionId,
+  manageUrl
+) {
+
+  const {
+    RESEND_API_KEY,
+    APPOINTMENT_NOTIFICATION_EMAIL,
+    OWNER_NOTIFICATION_EMAIL,
+    BARBER_NOTIFICATION_EMAIL,
+    BUSINESS_PRO_NOTIFICATION_EMAIL,
+    SIGNUP_NOTIFICATION_EMAIL,
+    RESEND_TO_EMAIL,
+    RESEND_FROM_EMAIL
+  } = process.env;
+
+  const destination =
+    APPOINTMENT_NOTIFICATION_EMAIL ||
+    OWNER_NOTIFICATION_EMAIL ||
+    BARBER_NOTIFICATION_EMAIL ||
+    BUSINESS_PRO_NOTIFICATION_EMAIL ||
+    SIGNUP_NOTIFICATION_EMAIL ||
+    RESEND_TO_EMAIL ||
+    "";
+
+  if (
+    !RESEND_API_KEY ||
+    !destination
+  ) {
+    throw new Error(
+      "Appointment email configuration is incomplete."
+    );
+  }
+
+  const paymentLine =
+    appointment.paymentChoice === "pay_at_store"
+      ? "Payment: Pay at store"
+      : `Payment received: $${(
+          Number(appointment.amountPaidCents || 0) /
+          100
+        ).toFixed(2)}`;
+
+  const lines = [
+    `Shop: ${appointment.shopName}`,
+    `Customer: ${appointment.customerName}`,
+    `Phone: ${appointment.phone}`,
+    `Barber: ${appointment.barberName}`,
+    `Service: ${appointment.serviceName}`,
+    `Date: ${appointment.appointmentDate}`,
+    `Time: ${appointment.appointmentTime}`,
+    paymentLine,
+    `Manage appointment: ${manageUrl}`,
+    `Stripe test session: ${sessionId}`
+  ];
+
+  const resendResponse =
+    await fetch(
+      "https://api.resend.com/emails",
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            `Bearer ${RESEND_API_KEY}`,
+          "Content-Type":
+            "application/json",
+          "Idempotency-Key":
+            `appointment-email/${sessionId}`
+        },
+        body:
+          JSON.stringify({
+            from:
+              RESEND_FROM_EMAIL ||
+              "Business Pro Local <onboarding@resend.dev>",
+            to: [destination],
+            subject:
+              `Appointment — ${appointment.customerName} with ${appointment.barberName}`,
+            text:
+              lines.join("\n")
+          })
+      }
+    );
+
+  const result =
+    await resendResponse.json();
+
+  if (!resendResponse.ok) {
+
+    console.error(
+      "Resend appointment email error:",
+      result
+    );
+
+    throw new Error(
+      result.message ||
+      "Resend rejected the appointment email."
+    );
+
+  }
+
+  return result;
+
+}
+
+
+async function sendAppointmentCancellationEmail(
+  appointment,
+  sessionId,
+  reason
+) {
+
+  const {
+    RESEND_API_KEY,
+    APPOINTMENT_NOTIFICATION_EMAIL,
+    OWNER_NOTIFICATION_EMAIL,
+    BARBER_NOTIFICATION_EMAIL,
+    BUSINESS_PRO_NOTIFICATION_EMAIL,
+    SIGNUP_NOTIFICATION_EMAIL,
+    RESEND_TO_EMAIL,
+    RESEND_FROM_EMAIL
+  } = process.env;
+
+  const destination =
+    APPOINTMENT_NOTIFICATION_EMAIL ||
+    OWNER_NOTIFICATION_EMAIL ||
+    BARBER_NOTIFICATION_EMAIL ||
+    BUSINESS_PRO_NOTIFICATION_EMAIL ||
+    SIGNUP_NOTIFICATION_EMAIL ||
+    RESEND_TO_EMAIL ||
+    "";
+
+  if (!RESEND_API_KEY || !destination) {
+    throw new Error(
+      "Appointment email configuration is incomplete."
+    );
+  }
+
+  const lines = [
+    `Shop: ${appointment.shopName}`,
+    `Customer: ${appointment.customerName}`,
+    `Phone: ${appointment.phone}`,
+    `Barber: ${appointment.barberName}`,
+    `Service: ${appointment.serviceName}`,
+    `Date: ${appointment.appointmentDate}`,
+    `Time: ${appointment.appointmentTime}`,
+    `Status: ${reason}`,
+    `Stripe test session: ${sessionId}`
+  ];
+
+  const resendResponse = await fetch(
+    "https://api.resend.com/emails",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `appointment-cancel/${sessionId}/${reason.replace(/\s+/g, "-").toLowerCase()}`
+      },
+      body: JSON.stringify({
+        from:
+          RESEND_FROM_EMAIL ||
+          "Business Pro Local <onboarding@resend.dev>",
+        to: [destination],
+        subject:
+          `${reason} — ${appointment.customerName} with ${appointment.barberName}`,
+        text: lines.join("\n")
+      })
+    }
+  );
+
+  const result = await resendResponse.json();
+
+  if (!resendResponse.ok) {
+    console.error(
+      "Resend cancellation email error:",
+      result
+    );
+    throw new Error(
+      result.message ||
+      "Resend rejected the cancellation email."
+    );
+  }
+
+  return result;
+
+}
+
+
+function appointmentFromSession(session) {
+
+  const metadata =
+    session.metadata || {};
+
+  return {
+    shopName:
+      metadata.shopName ||
+      "Barber Shop",
+    barberName:
+      metadata.barberName ||
+      "Barber",
+    serviceName:
+      metadata.serviceName ||
+      "Appointment",
+    customerName:
+      metadata.customerName ||
+      "Customer",
+    phone:
+      metadata.phone ||
+      "",
+    appointmentDate:
+      metadata.appointmentDate ||
+      "",
+    appointmentTime:
+      metadata.appointmentTime ||
+      "",
+    appointmentTime24:
+      metadata.appointmentTime24 ||
+      "",
+    smsConsent:
+      metadata.smsConsent === "yes",
+    paymentChoice:
+      metadata.paymentChoice || "",
+    amountCents:
+      Number(metadata.amountCents || 0),
+    amountPaidCents:
+      Number(metadata.amountPaidCents || 0)
+  };
+
+}
+
+
+function getAppointmentManageSecret() {
+
+  return String(
+    process.env.APPOINTMENT_MANAGE_SECRET ||
+    process.env.STRIPE_TEST_SECRET_KEY ||
+    process.env.STRIPE_SECRET_KEY ||
+    ""
+  );
+
+}
+
+
+function createAppointmentManageToken(
+  sessionId
+) {
+
+  const secret =
+    getAppointmentManageSecret();
+
+  if (!secret) {
+    throw new Error(
+      "Appointment management secret is not configured."
+    );
+  }
+
+  return crypto
+    .createHmac("sha256", secret)
+    .update(String(sessionId || ""))
+    .digest("hex");
+
+}
+
+
+function appointmentManageTokenIsValid(
+  sessionId,
+  token
+) {
+
+  try {
+
+    const expected =
+      Buffer.from(
+        createAppointmentManageToken(
+          sessionId
+        ),
+        "utf8"
+      );
+
+    const actual =
+      Buffer.from(
+        String(token || ""),
+        "utf8"
+      );
+
+    return (
+      expected.length === actual.length &&
+      crypto.timingSafeEqual(
+        expected,
+        actual
+      )
+    );
+
+  } catch {
+    return false;
+  }
+
+}
+
+
+function getAppointmentManageUrl(
+  req,
+  sessionId
+) {
+
+  const baseUrl =
+    getRequestBaseUrl(req);
+
+  const token =
+    createAppointmentManageToken(
+      sessionId
+    );
+
+  return (
+    `${baseUrl}/manage-appointment` +
+    `?session_id=${encodeURIComponent(sessionId)}` +
+    `&token=${encodeURIComponent(token)}`
+  );
+
+}
+
+
+async function getCompletedSetupSession(
+  stripe,
+  sessionId
+) {
+
+  if (
+    !sessionId ||
+    !String(sessionId).startsWith("cs_test_")
+  ) {
+    throw new Error(
+      "Invalid test checkout session."
+    );
+  }
+
+  const session =
+    await stripe.checkout.sessions.retrieve(
+      sessionId,
+      {
+        expand: [
+          "setup_intent"
+        ]
+      }
+    );
+
+  if (
+    session.mode !== "setup" ||
+    session.status !== "complete"
+  ) {
+    throw new Error(
+      "Card setup is not complete yet."
+    );
+  }
+
+  const setupIntent =
+    session.setup_intent;
+
+  if (
+    !setupIntent ||
+    setupIntent.status !== "succeeded" ||
+    !setupIntent.payment_method
+  ) {
+    throw new Error(
+      "The saved card is not ready yet."
+    );
+  }
+
+  return session;
+
+}
+
+
+async function sendFinalizedAppointmentNotifications(
+  req,
+  stripe,
+  session
+) {
+
+  const metadata =
+    session.metadata || {};
+
+  if (
+    metadata.appointmentStatus !==
+    "confirmed"
+  ) {
+    return {
+      smsRequested: false,
+      smsSent: false,
+      emailSent: false,
+      smsError: "",
+      emailError: ""
+    };
+  }
+
+  const appointment =
+    appointmentFromSession(session);
+
+  const manageUrl =
+    getAppointmentManageUrl(
+      req,
+      session.id
+    );
+
+  let smsSent =
+    metadata.appointmentSmsSent ===
+    "yes";
+
+  let emailSent =
+    metadata.appointmentEmailSent ===
+    "yes";
+
+  let smsError = "";
+  let emailError = "";
+
+  if (
+    appointment.smsConsent &&
+    !smsSent
+  ) {
+
+    try {
+
+      const paymentText =
+        appointment.paymentChoice ===
+        "pay_at_store"
+          ? "Pay at store."
+          : "Payment received.";
+
+      const messageBody =
+        `${appointment.shopName}: Your appointment with ${appointment.barberName} is confirmed for ${appointment.appointmentDate} at ${appointment.appointmentTime}. ${paymentText} Cancel or reschedule: ${manageUrl} Reply STOP to opt out.`;
+
+      await sendTwilioMessage(
+        appointment.phone,
+        messageBody
+      );
+
+      smsSent = true;
+
+    } catch (error) {
+
+      smsError =
+        error.message ||
+        "The confirmation text could not be sent.";
+
+      console.error(
+        "Appointment SMS error:",
         error
       );
-    });
+
+    }
 
   }
 
+  if (!emailSent) {
 
-  function showGalleryPhoto(
-    uploadSlot,
-    imageSource
-  ) {
+    try {
 
-    const emptyState =
-      uploadSlot.querySelector(
-        ".gallery-upload-empty"
+      await sendAppointmentEmail(
+        appointment,
+        session.id,
+        manageUrl
       );
 
-    const preview =
-      uploadSlot.querySelector(
-        ".gallery-upload-preview"
+      emailSent = true;
+
+    } catch (error) {
+
+      emailError =
+        error.message ||
+        "The owner/barber email could not be sent.";
+
+      console.error(
+        "Appointment email error:",
+        error
       );
 
-    const previewImage =
-      uploadSlot.querySelector(
-        ".gallery-upload-preview img"
-      );
-
-    if (
-      !emptyState ||
-      !preview ||
-      !previewImage
-    ) {
-      return;
     }
-
-    if (previewImage.dataset.objectUrl) {
-      URL.revokeObjectURL(
-        previewImage.dataset.objectUrl
-      );
-      delete previewImage.dataset.objectUrl;
-    }
-
-    if (
-      typeof imageSource === "string"
-    ) {
-      previewImage.src = imageSource;
-    } else {
-      const objectUrl =
-        URL.createObjectURL(imageSource);
-
-      previewImage.src = objectUrl;
-      previewImage.dataset.objectUrl =
-        objectUrl;
-    }
-
-    emptyState.hidden = true;
-    preview.hidden = false;
 
   }
 
+  await stripe.checkout.sessions.update(
+    session.id,
+    {
+      metadata: {
+        ...metadata,
+        appointmentSmsSent:
+          smsSent ? "yes" : "no",
+        appointmentEmailSent:
+          emailSent ? "yes" : "no",
+        appointmentNotificationsCheckedAt:
+          new Date().toISOString()
+      }
+    }
+  );
 
-  // ============================================================
-  // INDEXEDDB PHOTO STORAGE
-  // ============================================================
+  return {
+    smsRequested:
+      appointment.smsConsent,
+    smsSent,
+    emailSent,
+    smsError,
+    emailError,
+    manageUrl
+  };
 
-  function openPhotoDatabase() {
+}
 
-    return new Promise(
-      (resolve, reject) => {
 
-        if (!window.indexedDB) {
-          reject(
-            new Error(
-              "IndexedDB is not supported in this browser."
-            )
-          );
-          return;
-        }
+app.post(
+  "/send-confirmation",
+  async (req, res) => {
 
-        const request =
-          indexedDB.open(
-            PHOTO_DB_NAME,
-            1
-          );
+    try {
 
-        request.onupgradeneeded =
-          event => {
+      const appointmentDate =
+        cleanAppointmentValue(
+          req.body.date ||
+          req.body.appointmentDate ||
+          "[date]",
+          60
+        );
 
-            const database =
-              event.target.result;
+      const appointmentTime =
+        cleanAppointmentValue(
+          req.body.time ||
+          req.body.appointmentTime ||
+          "[time]",
+          60
+        );
 
-            if (
-              !database.objectStoreNames.contains(
-                PHOTO_STORE_NAME
-              )
-            ) {
-              database.createObjectStore(
-                PHOTO_STORE_NAME,
-                {
-                  keyPath: "id"
-                }
+      const shopName =
+        cleanAppointmentValue(
+          req.body.shopName ||
+          "The Village Barber",
+          160
+        ) ||
+        "The Village Barber";
+
+      const barberName =
+        cleanAppointmentValue(
+          req.body.barber ||
+          req.body.barberName ||
+          "",
+          160
+        );
+
+      const phone =
+        cleanAppointmentValue(
+          req.body.phone,
+          50
+        );
+
+      const messageBody =
+        `${shopName}: Your appointment${barberName ? ` with ${barberName}` : ""} is confirmed for ${appointmentDate} at ${appointmentTime}. Reply STOP to opt out.`;
+
+      const result =
+        await sendTwilioMessage(
+          phone,
+          messageBody
+        );
+
+      return res.json({
+        success: true,
+        messageSid: result.sid
+      });
+
+    } catch (error) {
+
+      console.error(
+        "SMS confirmation error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "The confirmation text could not be sent."
+      });
+
+    }
+
+  }
+);
+
+
+app.get(
+  "/appointment-launch",
+  (req, res) => {
+
+    const bookingId =
+      cleanAppointmentValue(
+        req.query.booking_id,
+        120
+      );
+
+    if (!bookingId) {
+      return sendPage(
+        res,
+        "Payment Unavailable | Business Pro",
+        `
+          <h1>Payment Could Not Be Opened</h1>
+          <p>The appointment reference is missing.</p>
+        `
+      );
+    }
+
+    const safeBookingId =
+      JSON.stringify(bookingId);
+
+    sendPage(
+      res,
+      "Opening Secure Payment | Business Pro",
+      `
+        <style>
+          body {
+            max-width: none;
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            background: #f8fafc;
+          }
+
+          .launch-card {
+            width: min(90vw, 430px);
+            padding: 34px 26px;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+          }
+
+          .launch-card h1 {
+            margin: 0 0 12px;
+            font-size: 24px;
+          }
+
+          .launch-card p {
+            margin: 0;
+            color: #475569;
+          }
+        </style>
+
+        <div class="launch-card">
+          <h1>Opening Secure Payment</h1>
+          <p id="launch-message">Please wait a moment...</p>
+        </div>
+
+        <script>
+          (() => {
+
+            const bookingId =
+              ${safeBookingId};
+
+            const message =
+              document.getElementById(
+                "launch-message"
               );
+
+            const startedAt =
+              Date.now();
+
+            async function checkLaunch() {
+
+              try {
+
+                const response =
+                  await fetch(
+                    "/appointment-launch-status?booking_id=" +
+                    encodeURIComponent(bookingId),
+                    { cache: "no-store" }
+                  );
+
+                const result =
+                  await response.json();
+
+                if (
+                  response.ok &&
+                  result.success &&
+                  result.ready &&
+                  result.url
+                ) {
+                  window.location.replace(
+                    result.url
+                  );
+                  return;
+                }
+
+              } catch (error) {
+                console.error(
+                  "Appointment launch check error:",
+                  error
+                );
+              }
+
+              if (
+                Date.now() - startedAt >
+                30000
+              ) {
+                message.textContent =
+                  "The secure payment page did not open. Return to the appointment page and try again.";
+                return;
+              }
+
+              setTimeout(
+                checkLaunch,
+                400
+              );
+
             }
 
-          };
+            checkLaunch();
 
-        request.onsuccess =
-          () => {
-            resolve(request.result);
-          };
-
-        request.onerror =
-          () => {
-            reject(
-              request.error ||
-              new Error(
-                "The photo database could not be opened."
-              )
-            );
-          };
-
-      }
+          })();
+        </script>
+      `
     );
 
   }
+);
 
 
-  async function saveGalleryPhoto(
-    barberId,
-    slotIndex,
-    imageBlob
-  ) {
+app.get(
+  "/appointment-launch-status",
+  (req, res) => {
 
-    const database =
-      await openPhotoDatabase();
+    const bookingId =
+      cleanAppointmentValue(
+        req.query.booking_id,
+        120
+      );
 
-    return new Promise(
-      (resolve, reject) => {
+    if (!bookingId) {
+      return res.status(400).json({
+        success: false,
+        ready: false,
+        error:
+          "The appointment reference is missing."
+      });
+    }
 
-        const transaction =
-          database.transaction(
-            PHOTO_STORE_NAME,
-            "readwrite"
-          );
+    const launch =
+      getAppointmentCheckoutLaunch(
+        bookingId
+      );
 
-        const store =
-          transaction.objectStore(
-            PHOTO_STORE_NAME
-          );
+    return res.json({
+      success: true,
+      ready: Boolean(launch),
+      sessionId:
+        launch?.sessionId || "",
+      url:
+        launch?.url || ""
+    });
 
-        store.put({
-          id:
-            `${barberId}-${slotIndex}`,
-          barberId,
-          slotIndex,
-          imageBlob,
-          updatedAt:
-            Date.now()
+  }
+);
+
+
+app.post(
+  "/create-appointment-checkout-session",
+  async (req, res) => {
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      const bookingId =
+        cleanAppointmentValue(
+          req.body.bookingId,
+          120
+        );
+
+      const shopName =
+        cleanAppointmentValue(
+          req.body.shopName,
+          160
+        ) || "Barber Shop";
+
+      const barberName =
+        cleanAppointmentValue(
+          req.body.barberName,
+          160
+        ) || "Barber";
+
+      const serviceName =
+        cleanAppointmentValue(
+          req.body.serviceName,
+          160
+        ) || "Appointment";
+
+      const customerName =
+        cleanAppointmentValue(
+          req.body.customerName,
+          160
+        ) || "Customer";
+
+      const phone =
+        cleanAppointmentValue(
+          req.body.phone,
+          50
+        );
+
+      const appointmentDate =
+        cleanAppointmentValue(
+          req.body.appointmentDate,
+          60
+        );
+
+      const appointmentTime =
+        cleanAppointmentValue(
+          req.body.appointmentTime,
+          60
+        );
+
+      const appointmentTime24 =
+        cleanAppointmentValue(
+          req.body.appointmentTime24,
+          30
+        );
+
+      const smsConsent =
+        req.body.smsConsent
+          ? "yes"
+          : "no";
+
+      const servicePrice =
+        Number(
+          req.body.servicePrice ||
+          0
+        );
+
+      const amountCents =
+        Math.round(
+          servicePrice * 100
+        );
+
+      if (
+        !bookingId ||
+        !phone ||
+        !appointmentDate ||
+        !appointmentTime
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Appointment checkout is missing required booking information."
+        });
+      }
+
+      if (
+        !Number.isFinite(amountCents) ||
+        amountCents < 50 ||
+        amountCents > 100000
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "The appointment price is not valid for test checkout."
+        });
+      }
+
+      const baseUrl =
+        getRequestBaseUrl(req);
+
+      const metadata = {
+        paymentType:
+          "appointment-card-choice-test",
+        bookingId,
+        shopName,
+        barberName,
+        serviceName,
+        customerName,
+        phone,
+        appointmentDate,
+        appointmentTime,
+        appointmentTime24,
+        smsConsent,
+        amountCents:
+          String(amountCents),
+        appointmentStatus:
+          "awaiting-payment-choice",
+        paymentChoice:
+          ""
+      };
+
+      const customer =
+        await stripe.customers.create({
+          name: customerName,
+          phone,
+          metadata: {
+            bookingId,
+            appointmentType:
+              "Business Pro barber appointment test"
+          }
         });
 
-        transaction.oncomplete =
-          () => {
-            database.close();
-            resolve();
-          };
+      const session =
+        await stripe.checkout.sessions.create({
+          mode: "setup",
+          payment_method_types: [
+            "card"
+          ],
+          customer:
+            customer.id,
+          client_reference_id:
+            bookingId,
+          metadata,
+          setup_intent_data: {
+            metadata
+          },
+          success_url:
+            `${baseUrl}/appointment-payment-choice?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url:
+            `${baseUrl}/appointment-payment-cancelled`
+        });
 
-        transaction.onerror =
-          () => {
-            database.close();
-            reject(
-              transaction.error ||
-              new Error(
-                "The photo could not be saved."
-              )
-            );
-          };
-
-        transaction.onabort =
-          () => {
-            database.close();
-            reject(
-              transaction.error ||
-              new Error(
-                "Saving the photo was cancelled."
-              )
-            );
-          };
-
-      }
-    );
-
-  }
-
-
-  async function loadSavedGalleryPhoto(
-    barberId,
-    slotIndex
-  ) {
-
-    const database =
-      await openPhotoDatabase();
-
-    return new Promise(
-      (resolve, reject) => {
-
-        const transaction =
-          database.transaction(
-            PHOTO_STORE_NAME,
-            "readonly"
-          );
-
-        const store =
-          transaction.objectStore(
-            PHOTO_STORE_NAME
-          );
-
-        const request =
-          store.get(
-            `${barberId}-${slotIndex}`
-          );
-
-        request.onsuccess =
-          () => {
-
-            const record =
-              request.result;
-
-            database.close();
-
-            resolve(
-              record && record.imageBlob
-                ? record.imageBlob
-                : null
-            );
-
-          };
-
-        request.onerror =
-          () => {
-            database.close();
-            reject(
-              request.error ||
-              new Error(
-                "The saved photo could not be loaded."
-              )
-            );
-          };
-
-      }
-    );
-
-  }
-
-
-  // ============================================================
-  // CLOSE PROFILE
-  // ============================================================
-
-  if (closeProfileButton) {
-    closeProfileButton.addEventListener(
-      "click",
-      () => {
-        closeProfile();
-      }
-    );
-  }
-
-  if (profileModal) {
-    profileModal.addEventListener(
-      "click",
-      event => {
-        if (event.target === profileModal) {
-          closeProfile();
-        }
-      }
-    );
-  }
-
-  function closeProfile(
-    restoreScroll = true
-  ) {
-
-    if (!profileModal) {
-      return;
-    }
-
-    profileModal.classList.remove("open");
-
-    if (restoreScroll) {
-      document.body.style.overflow = "";
-    }
-
-  }
-
-
-  // ============================================================
-  // PROFILE PHOTO OR INITIALS
-  // ============================================================
-
-  function buildProfilePhoto(
-    profile,
-    size
-  ) {
-
-    const className =
-      size === "small"
-        ? "barber-card-photo"
-        : "barber-popup-photo";
-
-    if (profile.profilePhoto) {
-      return `
-        <img
-          class="${className}"
-          src="${escapeAttribute(profile.profilePhoto)}"
-          alt="${escapeAttribute(profile.name)}"
-        >
-      `;
-    }
-
-    return `
-      <div
-        class="${className} barber-photo-placeholder"
-        aria-label="${escapeAttribute(profile.name)}"
-      >
-        ${escapeHTML(
-          getInitials(profile.name)
-        )}
-      </div>
-    `;
-
-  }
-
-
-  // ============================================================
-  // BOOKING DROPDOWN
-  // ============================================================
-
-  function buildBarberSelect() {
-
-    if (!barberSelect) {
-      return;
-    }
-
-    barberSelect.innerHTML = `
-      <option value="">
-        Select a barber
-      </option>
-    `;
-
-    bookableBarbers.forEach(barber => {
-
-      const option =
-        document.createElement("option");
-
-      option.value =
-        barber.id;
-
-      option.textContent =
-        barber.name;
-
-      barberSelect.appendChild(option);
-
-    });
-
-  }
-
-
-  // ============================================================
-  // GENERAL BOOKING BUTTONS
-  // ============================================================
-
-  function attachGeneralBookingButtons() {
-
-    const buttons =
-      document.querySelectorAll(
-        ".open-booking"
+      rememberAppointmentCheckoutLaunch(
+        bookingId,
+        session
       );
 
-    buttons.forEach(button => {
-      button.addEventListener(
-        "click",
-        () => {
-          openBookingModal(
-            button.dataset.barber || ""
-          );
-        }
-      );
-    });
-
-  }
-
-
-  // ============================================================
-  // OPEN BOOKING
-  // ============================================================
-
-  function openBookingModal(
-    requestedBarberId = "",
-    requestedService = ""
-  ) {
-
-    if (!bookingModal) {
-      return;
-    }
-
-    requestedServiceId =
-      requestedService || "";
-
-    confirmationMessage.innerHTML = "";
-
-    const requestedBarber =
-      requestedBarberId
-        ? getBookableBarberById(
-            requestedBarberId
-          )
-        : null;
-
-    if (requestedBarber) {
-
-      setBarberChoiceVisibility(false);
-      selectBarber(requestedBarber.id);
-
-    } else if (
-      bookableBarbers.length === 1
-    ) {
-
-      setBarberChoiceVisibility(false);
-      selectBarber(
-        bookableBarbers[0].id
-      );
-
-    } else {
-
-      setBarberChoiceVisibility(true);
-      selectBarber("");
-
-    }
-
-    bookingModal.classList.add("open");
-    document.body.style.overflow = "hidden";
-
-  }
-
-
-  function setBarberChoiceVisibility(
-    showChoice
-  ) {
-
-    if (barberSelectLabel) {
-      barberSelectLabel.hidden =
-        !showChoice;
-    }
-
-    if (barberSelect) {
-      barberSelect.hidden =
-        !showChoice;
-    }
-
-  }
-
-
-  // ============================================================
-  // BARBER SELECTION
-  // ============================================================
-
-  if (barberSelect) {
-    barberSelect.addEventListener(
-      "change",
-      () => {
-        selectBarber(
-          barberSelect.value
-        );
-      }
-    );
-  }
-
-  function selectBarber(
-    barberId
-  ) {
-
-    selectedBarberId =
-      barberId;
-
-    if (barberSelect) {
-      barberSelect.value =
-        barberId;
-    }
-
-    const barber =
-      getBookableBarberById(
-        barberId
-      );
-
-    if (!barber) {
-
-      if (selectedBarberDisplay) {
-        selectedBarberDisplay.textContent =
-          "Select a Barber";
-      }
-
-      if (dateInput) {
-        dateInput.value = "";
-      }
-
-      buildServiceSelect(null);
-      resetTimeSelect();
-      renderBookingDateCalendar();
-      return;
-
-    }
-
-    if (selectedBarberDisplay) {
-      selectedBarberDisplay.textContent =
-        barber.name;
-    }
-
-    if (dateInput) {
-      dateInput.value = "";
-    }
-
-    bookingCalendarMonth = new Date();
-    bookingCalendarMonth.setDate(1);
-    bookingCalendarMonth.setHours(0, 0, 0, 0);
-
-    buildServiceSelect(barber);
-    resetTimeSelect();
-    renderBookingDateCalendar();
-
-    if (
-      requestedServiceId &&
-      Array.from(serviceSelect.options).some(
-        option =>
-          option.value ===
-          requestedServiceId
-      )
-    ) {
-      serviceSelect.value =
-        requestedServiceId;
-    }
-
-    updateAvailableTimes();
-
-  }
-
-
-  // ============================================================
-  // BARBER SERVICES
-  // ============================================================
-
-  function buildServiceSelect(
-    barber
-  ) {
-
-    if (!serviceSelect) {
-      return;
-    }
-
-    serviceSelect.innerHTML = `
-      <option value="">
-        Select a service
-      </option>
-    `;
-
-    if (!barber) {
-      return;
-    }
-
-    const allowedIds =
-      Array.isArray(barber.serviceIds)
-        ? barber.serviceIds
-        : [];
-
-    services.forEach(service => {
-
-      if (
-        allowedIds.length > 0 &&
-        !allowedIds.includes(service.id)
-      ) {
-        return;
-      }
-
-      const option =
-        document.createElement("option");
-
-      option.value =
-        service.id;
-
-      option.textContent =
-        `${service.name} - ${formatPrice(service.price)}`;
-
-      serviceSelect.appendChild(option);
-
-    });
-
-  }
-
-
-  // ============================================================
-  // CLOSE BOOKING
-  // ============================================================
-
-  if (closeBookingButton) {
-    closeBookingButton.addEventListener(
-      "click",
-      closeBookingModal
-    );
-  }
-
-  if (bookingModal) {
-    bookingModal.addEventListener(
-      "click",
-      event => {
-        if (event.target === bookingModal) {
-          closeBookingModal();
-        }
-      }
-    );
-  }
-
-  function closeBookingModal() {
-
-    if (!bookingModal) {
-      return;
-    }
-
-    bookingModal.classList.remove("open");
-    document.body.style.overflow = "";
-
-  }
-
-
-  // ============================================================
-  // ESCAPE KEY
-  // ============================================================
-
-  document.addEventListener(
-    "keydown",
-    event => {
-
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      if (
-        bookingModal &&
-        bookingModal.classList.contains("open")
-      ) {
-        closeBookingModal();
-        return;
-      }
-
-      if (
-        profileModal &&
-        profileModal.classList.contains("open")
-      ) {
-        closeProfile();
-      }
-
-    }
-  );
-
-
-  // ============================================================
-  // BOOKING CALENDAR
-  // ============================================================
-
-  function configureBookingCalendar() {
-
-    if (!dateInput) {
-      return;
-    }
-
-    const today =
-      new Date();
-
-    today.setHours(
-      0,
-      0,
-      0,
-      0
-    );
-
-    const maxDate =
-      new Date(today);
-
-    maxDate.setDate(
-      maxDate.getDate() +
-      DAYS_AVAILABLE
-    );
-
-    dateInput.min =
-      toDateInputValue(today);
-
-    dateInput.max =
-      toDateInputValue(maxDate);
-
-    bookingCalendarMonth = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      1
-    );
-
-    if (bookingDatePrev) {
-      bookingDatePrev.addEventListener(
-        "click",
-        () => {
-          bookingCalendarMonth.setMonth(
-            bookingCalendarMonth.getMonth() - 1
-          );
-          renderBookingDateCalendar();
-        }
-      );
-    }
-
-    if (bookingDateNext) {
-      bookingDateNext.addEventListener(
-        "click",
-        () => {
-          bookingCalendarMonth.setMonth(
-            bookingCalendarMonth.getMonth() + 1
-          );
-          renderBookingDateCalendar();
-        }
-      );
-    }
-
-    renderBookingDateCalendar();
-
-  }
-
-
-  if (dateInput) {
-    dateInput.addEventListener(
-      "change",
-      () => {
-        renderBookingDateCalendar();
-        updateAvailableTimes();
-      }
-    );
-  }
-
-  if (serviceSelect) {
-    serviceSelect.addEventListener(
-      "change",
-      () => {
-        renderBookingDateCalendar();
-        updateAvailableTimes();
-      }
-    );
-  }
-
-
-  function getDateAvailability(
-    barber,
-    dateKey
-  ) {
-
-    const selectedDate =
-      parseDateInput(dateKey);
-
-    if (!barber || !selectedDate) {
-      return {
-        available: false,
-        status: "unavailable",
-        label: "OFF",
-        times: []
-      };
-    }
-
-
-       const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    if (
-      dateKey === toDateInputValue(today) &&
-      businessIsOpen === false
-    ) {
-      return {
-        available: false,
-        status: "closed",
-        label: "CLOSED",
-        times: []
-      };
-    }
-
-    const maxDate = new Date(today);
-    maxDate.setDate(maxDate.getDate() + DAYS_AVAILABLE);
-
-    if (
-      selectedDate < today ||
-      selectedDate > maxDate
-    ) {
-      return {
-        available: false,
-        status: "outside-range",
-        label: "",
-        times: []
-      };
-    }
-
-    const schedule =
-      barber.schedule || {};
-
-    const workingDays =
-      Array.isArray(schedule.workingDays)
-        ? schedule.workingDays
-        : [];
-
-    if (
-      !workingDays.includes(
-        selectedDate.getDay()
-      )
-    ) {
-      return {
-        available: false,
-        status: "off",
-        label: "OFF",
-        times: []
-      };
-    }
-
-    const approvedRequests =
-      getApprovedTimeOff().filter(request =>
-        String(request.employee || "").toLowerCase() ===
-          String(barber.name || "").toLowerCase() &&
-        dateKey >= request.startDate &&
-        dateKey <= request.endDate
-      );
-
-    if (
-      approvedRequests.some(
-        request => request.allDay
-      )
-    ) {
-      return {
-        available: false,
-        status: "off",
-        label: "OFF",
-        times: []
-      };
-    }
-
-    const startTime =
-      schedule.startTime ||
-      "09:00";
-
-    const endTime =
-      schedule.endTime ||
-      "17:00";
-
-    const breaks =
-      Array.isArray(schedule.breaks)
-        ? schedule.breaks
-        : [];
-
-    const bookings =
-      getBookings();
-
-    const times =
-      generateTimeSlots(
-        startTime,
-        endTime,
-        APPOINTMENT_LENGTH
-      );
-
-    const availableTimes =
-      times.filter(time => {
-
-        const duringBreak =
-          breaks.some(item =>
-            timeFallsWithinRange(
-              time,
-              item.start,
-              item.end
-            )
-          );
-
-        if (duringBreak) {
-          return false;
-        }
-
-        const alreadyBooked =
-          bookings.some(booking =>
-            booking.barberId === barber.id &&
-            booking.date === dateKey &&
-            booking.time === time &&
-            bookingBlocksSlot(booking)
-          );
-
-        if (alreadyBooked) {
-          return false;
-        }
-
-        if (
-          isBlockedByApprovedTimeOff(
-            barber.name,
-            dateKey,
-            time
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          isPastTime(
-            dateKey,
-            time
-          )
-        ) {
-          return false;
-        }
-
-        return true;
-
+      return res.json({
+        success: true,
+        url: session.url,
+        sessionId: session.id
       });
-
-    if (availableTimes.length === 0) {
-      return {
-        available: false,
-        status: "full",
-        label: "FULL",
-        times: []
-      };
-    }
-
-    return {
-      available: true,
-      status: "available",
-      label: "",
-      times: availableTimes
-    };
-
-  }
-
-
-  function renderBookingDateCalendar() {
-
-    if (
-      !bookingDateCalendar ||
-      !bookingDateGrid ||
-      !bookingDateMonthLabel
-    ) {
-      return;
-    }
-
-    const barber =
-      getBookableBarberById(
-        selectedBarberId
-      );
-
-    bookingDateGrid.innerHTML = "";
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const maxDate = new Date(today);
-    maxDate.setDate(maxDate.getDate() + DAYS_AVAILABLE);
-
-    const firstAllowedMonth = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      1
-    );
-
-    const lastAllowedMonth = new Date(
-      maxDate.getFullYear(),
-      maxDate.getMonth(),
-      1
-    );
-
-    if (bookingCalendarMonth < firstAllowedMonth) {
-      bookingCalendarMonth = new Date(firstAllowedMonth);
-    }
-
-    if (bookingCalendarMonth > lastAllowedMonth) {
-      bookingCalendarMonth = new Date(lastAllowedMonth);
-    }
-
-    bookingDateMonthLabel.textContent =
-      bookingCalendarMonth.toLocaleDateString(
-        "en-US",
-        {
-          month: "long",
-          year: "numeric"
-        }
-      );
-
-    if (bookingDatePrev) {
-      bookingDatePrev.disabled =
-        bookingCalendarMonth.getTime() ===
-        firstAllowedMonth.getTime();
-    }
-
-    if (bookingDateNext) {
-      bookingDateNext.disabled =
-        bookingCalendarMonth.getTime() ===
-        lastAllowedMonth.getTime();
-    }
-
-    const firstDay = new Date(
-      bookingCalendarMonth.getFullYear(),
-      bookingCalendarMonth.getMonth(),
-      1
-    );
-
-    const daysInMonth = new Date(
-      bookingCalendarMonth.getFullYear(),
-      bookingCalendarMonth.getMonth() + 1,
-      0
-    ).getDate();
-
-    const mondayOffset =
-      (firstDay.getDay() + 6) % 7;
-
-    for (
-      let emptyIndex = 0;
-      emptyIndex < mondayOffset;
-      emptyIndex += 1
-    ) {
-      const empty = document.createElement("span");
-      empty.className = "booking-date-empty";
-      bookingDateGrid.appendChild(empty);
-    }
-
-    for (
-      let day = 1;
-      day <= daysInMonth;
-      day += 1
-    ) {
-      const date = new Date(
-        bookingCalendarMonth.getFullYear(),
-        bookingCalendarMonth.getMonth(),
-        day
-      );
-
-      date.setHours(0, 0, 0, 0);
-
-      const dateKey =
-        toDateInputValue(date);
-
-      const outsideRange =
-        date < today ||
-        date > maxDate;
-
-      const state =
-        barber && !outsideRange
-          ? getDateAvailability(
-              barber,
-              dateKey
-            )
-          : {
-              available: false,
-              status: "outside-range",
-              label: "",
-              times: []
-            };
-
-      const button =
-        document.createElement("button");
-
-      button.type = "button";
-      button.className = "booking-date-day";
-      button.dataset.date = dateKey;
-
-      const number =
-        document.createElement("span");
-      number.className = "booking-date-number";
-      number.textContent = String(day);
-      button.appendChild(number);
-
-      if (state.label) {
-        const status =
-          document.createElement("small");
-        status.className = "booking-date-status";
-        status.textContent = state.label;
-        button.appendChild(status);
-      }
-
-      if (
-        dateInput &&
-        dateInput.value === dateKey
-      ) {
-        button.classList.add("is-selected");
-      }
-
-      if (!state.available) {
-        button.disabled = true;
-        button.classList.add("is-unavailable");
-
-        if (state.status === "full") {
-          button.classList.add("is-full");
-        }
-
-        if (state.status === "off") {
-          button.classList.add("is-off");
-        }
-      } else {
-        button.title =
-          `${state.times.length} appointment time${state.times.length === 1 ? "" : "s"} available`;
-
-        button.addEventListener(
-          "click",
-          () => {
-            if (!dateInput) return;
-
-            dateInput.value = dateKey;
-            renderBookingDateCalendar();
-            updateAvailableTimes();
-          }
-        );
-      }
-
-      bookingDateGrid.appendChild(button);
-    }
-
-    if (bookingDateNote) {
-      bookingDateNote.textContent = barber
-        ? "Gray OFF and FULL dates cannot be selected."
-        : "Choose a barber to see available dates.";
-    }
-
-    if (
-      barber &&
-      dateInput &&
-      dateInput.value
-    ) {
-      const selectedState =
-        getDateAvailability(
-          barber,
-          dateInput.value
-        );
-
-      if (!selectedState.available) {
-        dateInput.value = "";
-        resetTimeSelect();
-      }
-    }
-
-  }
-
-
-  // ============================================================
-  // AVAILABLE TIMES
-  // ============================================================
-
-  function updateAvailableTimes() {
-
-    resetTimeSelect();
-
-    const barber =
-      getBookableBarberById(
-        selectedBarberId
-      );
-
-    if (
-      !barber ||
-      !dateInput ||
-      !dateInput.value
-    ) {
-      return;
-    }
-
-    const availability =
-      getDateAvailability(
-        barber,
-        dateInput.value
-      );
-
-    if (!availability.available) {
-      addTimeMessage(
-        availability.status === "full"
-          ? "This date is fully booked."
-          : "This barber is not available on that day."
-      );
-      return;
-    }
-
-    availability.times.forEach(time => {
-
-      const option =
-        document.createElement("option");
-
-      option.value =
-        time;
-
-      option.textContent =
-        convertTo12Hour(time);
-
-      timeSelect.appendChild(option);
-
-    });
-
-  }
-
-
-  function bookingBlocksSlot(booking) {
-
-    if (!booking) return false;
-
-    const status =
-      String(booking.ownerStatus || booking.status || "confirmed")
-        .toLowerCase();
-
-    if (status !== "canceled") {
-      return true;
-    }
-
-    // A customer cancellation reopens the slot. An owner/employee
-    // cancellation remains blocked until someone reopens it.
-    return booking.slotBlocked === true;
-
-  }
-
-
-  function getApprovedTimeOff() {
-
-    try {
-      const requests = JSON.parse(
-        localStorage.getItem(TIME_OFF_STORAGE_KEY) || "[]"
-      );
-
-      return Array.isArray(requests)
-        ? requests.filter(request => request.status === "approved")
-        : [];
-    } catch {
-      return [];
-    }
-
-  }
-
-
-  function flexibleTimeToMinutes(value) {
-
-    const raw = String(value || "").trim();
-    const twentyFourHour = raw.match(/^(\d{1,2}):(\d{2})$/);
-
-    if (twentyFourHour) {
-      return Number(twentyFourHour[1]) * 60 + Number(twentyFourHour[2]);
-    }
-
-    const twelveHour = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-    if (!twelveHour) return NaN;
-
-    let hour = Number(twelveHour[1]) % 12;
-    const minute = Number(twelveHour[2]);
-
-    if (twelveHour[3].toUpperCase() === "PM") hour += 12;
-    return hour * 60 + minute;
-
-  }
-
-
-  function isBlockedByApprovedTimeOff(barberName, dateKey, time) {
-
-    const slotStart = flexibleTimeToMinutes(time);
-
-    return getApprovedTimeOff().some(request => {
-      if (
-        String(request.employee || "").toLowerCase() !==
-        String(barberName || "").toLowerCase()
-      ) return false;
-
-      if (dateKey < request.startDate || dateKey > request.endDate) {
-        return false;
-      }
-
-      if (request.allDay) return true;
-
-      const blockedStart = flexibleTimeToMinutes(request.startTime);
-      const blockedEnd = flexibleTimeToMinutes(request.endTime);
-
-      if (
-        Number.isNaN(slotStart) ||
-        Number.isNaN(blockedStart) ||
-        Number.isNaN(blockedEnd)
-      ) return true;
-
-      return slotStart >= blockedStart && slotStart < blockedEnd;
-    });
-
-  }
-
-
-  function resetTimeSelect() {
-
-    if (!timeSelect) {
-      return;
-    }
-
-    timeSelect.innerHTML = `
-      <option value="">
-        Select a time
-      </option>
-    `;
-
-  }
-
-
-  function addTimeMessage(
-    message
-  ) {
-
-    if (!timeSelect) {
-      return;
-    }
-
-    const option =
-      document.createElement("option");
-
-    option.value = "";
-    option.disabled = true;
-    option.textContent = message;
-
-    timeSelect.appendChild(option);
-
-  }
-
-
-  function generateTimeSlots(
-    startTime,
-    endTime,
-    intervalMinutes
-  ) {
-
-    const startMinutes =
-      timeToMinutes(startTime);
-
-    const endMinutes =
-      timeToMinutes(endTime);
-
-    const slots = [];
-
-    for (
-      let minutes = startMinutes;
-      minutes + intervalMinutes <= endMinutes;
-      minutes += intervalMinutes
-    ) {
-      slots.push(
-        minutesToTime(minutes)
-      );
-    }
-
-    return slots;
-
-  }
-
-
-  function timeFallsWithinRange(
-    time,
-    rangeStart,
-    rangeEnd
-  ) {
-
-    if (
-      !rangeStart ||
-      !rangeEnd
-    ) {
-      return false;
-    }
-
-    const value =
-      timeToMinutes(time);
-
-    const start =
-      timeToMinutes(rangeStart);
-
-    const end =
-      timeToMinutes(rangeEnd);
-
-    return (
-      value >= start &&
-      value < end
-    );
-
-  }
-
-
-  function isPastTime(
-    dateValue,
-    timeValue
-  ) {
-
-    const date =
-      parseDateInput(dateValue);
-
-    if (!date) {
-      return false;
-    }
-
-    const [hours, minutes] =
-      timeValue
-        .split(":")
-        .map(Number);
-
-    date.setHours(
-      hours,
-      minutes,
-      0,
-      0
-    );
-
-    return (
-      date.getTime() <=
-      Date.now()
-    );
-
-  }
-
-
-  // ============================================================
-  // CONFIRM BOOKING
-  // ============================================================
-
-  if (confirmButton) {
-    confirmButton.addEventListener(
-      "click",
-      confirmBooking
-    );
-  }
-
-  async function confirmBooking() {
-
-    const barber =
-      getBookableBarberById(
-        selectedBarberId
-      );
-
-    const service =
-      getServiceById(
-        serviceSelect
-          ? serviceSelect.value
-          : ""
-      );
-
-    const date =
-      dateInput
-        ? dateInput.value
-        : "";
-
-    const time =
-      timeSelect
-        ? timeSelect.value
-        : "";
-
-    const customerName =
-      nameInput
-        ? nameInput.value.trim()
-        : "";
-
-    const customerPhone =
-      phoneInput
-        ? phoneInput.value.trim()
-        : "";
-
-    if (!barber) {
-      showBookingError(
-        "Please choose a barber."
-      );
-      return;
-    }
-
-    if (!service) {
-      showBookingError(
-        "Please choose a service."
-      );
-      return;
-    }
-
-    if (!date) {
-      showBookingError(
-        "Please choose a date."
-      );
-      return;
-    }
-
-    if (!time) {
-      showBookingError(
-        "Please choose an available time."
-      );
-      return;
-    }
-
-    if (!customerName) {
-      showBookingError(
-        "Please enter your name."
-      );
-      return;
-    }
-
-    const formattedPhone =
-      formatUSPhone(customerPhone);
-
-    if (!formattedPhone) {
-      showBookingError(
-        "Please enter a valid 10-digit mobile phone number."
-      );
-      return;
-    }
-
-    const bookings =
-      getBookings();
-
-    const timeWasTaken =
-      bookings.some(booking =>
-        booking.barberId === barber.id &&
-        booking.date === date &&
-        booking.time === time &&
-        bookingBlocksSlot(booking)
-      );
-
-    if (timeWasTaken) {
-      showBookingError(
-        "That appointment time was just taken. Please choose another time."
-      );
-      updateAvailableTimes();
-      return;
-    }
-
-    const booking = {
-
-      id:
-        createBookingId(),
-
-      shopName:
-        shop.name ||
-        "Barber Shop",
-
-      barberId:
-        barber.id,
-
-      barberName:
-        barber.name,
-
-      serviceId:
-        service.id,
-
-      serviceName:
-        service.name,
-
-      servicePrice:
-        Number(service.price || 0),
-
-      date,
-      time,
-      customerName,
-
-      phone:
-        formattedPhone,
-
-      smsConsent:
-        Boolean(
-          smsConsent &&
-          smsConsent.checked
-        ),
-
-      ownerStatus:
-        "pending-payment-choice",
-
-      paymentStatus:
-        "pending",
-
-      paymentChoice:
-        "",
-
-      cancellationSource:
-        "",
-
-      slotBlocked:
-        false,
-
-      createdAt:
-        new Date().toISOString()
-
-    };
-
-    const paymentWindow =
-      window.open(
-        "about:blank",
-        "_blank"
-      );
-
-    if (!paymentWindow) {
-      showBookingError(
-        "Please allow pop-ups for this page so the secure card page can open."
-      );
-      return;
-    }
-
-    if (confirmButton) {
-      confirmButton.disabled = true;
-      confirmButton.textContent =
-        "Opening Secure Card Page...";
-    }
-
-    if (confirmationMessage) {
-      confirmationMessage.innerHTML = `
-        <p class="sms-demo-message">
-          Opening secure Stripe test card page...
-        </p>
-      `;
-    }
-
-    try {
-
-      const checkoutResponse =
-        await fetch(
-          APPOINTMENT_CHECKOUT_URL,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json"
-            },
-            body:
-              JSON.stringify({
-                bookingId:
-                  booking.id,
-                shopName:
-                  booking.shopName,
-                barberName:
-                  booking.barberName,
-                serviceName:
-                  booking.serviceName,
-                servicePrice:
-                  booking.servicePrice,
-                customerName:
-                  booking.customerName,
-                phone:
-                  booking.phone,
-                appointmentDate:
-                  booking.date,
-                appointmentTime:
-                  convertTo12Hour(
-                    booking.time
-                  ),
-                appointmentTime24:
-                  booking.time,
-                smsConsent:
-                  booking.smsConsent
-              })
-          }
-        );
-
-      const checkoutResult =
-        await checkoutResponse.json();
-
-      if (
-        !checkoutResponse.ok ||
-        !checkoutResult.success ||
-        !checkoutResult.url ||
-        !checkoutResult.sessionId
-      ) {
-        throw new Error(
-          checkoutResult.error ||
-          "The secure card page could not be opened."
-        );
-      }
-
-      booking.paymentReference =
-        checkoutResult.sessionId;
-
-      paymentWindow.location.href =
-        checkoutResult.url;
-
-      if (confirmationMessage) {
-        confirmationMessage.innerHTML = `
-          <p class="sms-demo-message">
-            Enter the test card in Stripe. After the card is saved,
-            choose PAY NOW BY CARD or PAY AT STORE.
-          </p>
-        `;
-      }
-
-      const finalStatus =
-        await waitForAppointmentConfirmation(
-          checkoutResult.sessionId,
-          paymentWindow
-        );
-
-      if (!finalStatus.confirmed) {
-        throw new Error(
-          "The appointment was not confirmed."
-        );
-      }
-
-      const latestBookings =
-        getBookings();
-
-      const slotWasTaken =
-        latestBookings.some(item =>
-          item.barberId === barber.id &&
-          item.date === date &&
-          item.time === time &&
-          bookingBlocksSlot(item)
-        );
-
-      if (slotWasTaken) {
-        throw new Error(
-          "The appointment was confirmed, but that time was already taken locally. Please contact the shop."
-        );
-      }
-
-      booking.ownerStatus =
-        "confirmed";
-
-      booking.paymentChoice =
-        finalStatus.paymentChoice ||
-        "";
-
-      booking.paymentStatus =
-        finalStatus.paid
-          ? "paid"
-          : "pay-at-store";
-
-      booking.amountPaid =
-        Number(
-          finalStatus.amountTotal ||
-          0
-        ) / 100;
-
-            booking.manageUrl =
-        finalStatus.manageUrl ||
-        "";
-
-      booking.confirmedAt =
-        new Date().toISOString();
-
-      latestBookings.push(booking);
-      saveBookings(latestBookings);
-
-      showConfirmation(booking);
-      renderBookingDateCalendar();
-      updateAvailableTimes();
-
-      await sendPaidAppointmentNotifications(
-        booking
-      );
 
     } catch (error) {
 
-      try {
-        if (
-          paymentWindow &&
-          !paymentWindow.closed &&
-          paymentWindow.location.href === "about:blank"
-        ) {
-          paymentWindow.close();
-        }
-      } catch {
-        // Cross-origin Stripe window. Nothing to close here.
-      }
-
       console.error(
-        "Appointment confirmation error:",
+        "Appointment Stripe card setup error:",
         error
       );
 
-      showBookingError(
-        error.message ||
-        "The appointment could not be completed."
-      );
-
-    } finally {
-
-      if (confirmButton) {
-        confirmButton.disabled = false;
-        confirmButton.textContent =
-          "Confirm Appointment";
-      }
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "The secure card page could not be created."
+      });
 
     }
 
   }
+);
 
 
-  async function waitForAppointmentConfirmation(
-    sessionId,
-    paymentWindow
-  ) {
-
-    const startedAt =
-      Date.now();
-
-    const maximumWaitMs =
-      10 * 60 * 1000;
-
-    while (
-      Date.now() - startedAt <
-      maximumWaitMs
-    ) {
-
-      await new Promise(resolve =>
-        setTimeout(resolve, 2000)
-      );
-
-      try {
-
-        const response =
-          await fetch(
-            `${APPOINTMENT_STATUS_URL}?session_id=${encodeURIComponent(sessionId)}`
-          );
-
-        const result =
-          await response.json();
-
-        if (
-          response.ok &&
-          result.success &&
-          result.confirmed
-        ) {
-          return result;
-        }
-
-      } catch (error) {
-        console.error(
-          "Appointment status check error:",
-          error
-        );
-      }
-
-      if (
-        paymentWindow &&
-        paymentWindow.closed
-      ) {
-
-        try {
-
-          const finalResponse =
-            await fetch(
-              `${APPOINTMENT_STATUS_URL}?session_id=${encodeURIComponent(sessionId)}`
-            );
-
-          const finalResult =
-            await finalResponse.json();
-
-          if (
-            finalResponse.ok &&
-            finalResult.success &&
-            finalResult.confirmed
-          ) {
-            return finalResult;
-          }
-
-        } catch {
-          // The final status check failed.
-        }
-
-        return {
-          confirmed: false
-        };
-
-      }
-
-    }
-
-    return {
-      confirmed: false
-    };
-
-  }
-
-
-  function showBookingError(
-    message
-  ) {
-
-    if (!confirmationMessage) {
-      return;
-    }
-
-    confirmationMessage.innerHTML = `
-      <p class="booking-error">
-        ${escapeHTML(message)}
-      </p>
-    `;
-
-  }
-
-
-  // ============================================================
-  // CONFIRMATION
-  // ============================================================
-
-  function showConfirmation(
-    booking
-  ) {
-
-    if (!confirmationMessage) {
-      return;
-    }
-
-    const displayDate =
-      formatDisplayDate(
-        booking.date
-      );
-
-    const displayTime =
-      convertTo12Hour(
-        booking.time
-      );
-
-    const endTime =
-      addMinutes(
-        booking.time,
-        APPOINTMENT_LENGTH
-      );
-
-    const paymentText =
-      booking.paymentChoice ===
-      "pay_at_store"
-        ? "Pay at Store"
-        : `Paid ${formatPrice(
-            Number(
-              booking.amountPaid ??
-              booking.servicePrice
-            )
-          )}`;
-
-    const manageLink =
-      booking.manageUrl
-        ? `
-          <p>
-            <a
-              href="${escapeAttribute(booking.manageUrl)}"
-              target="_blank"
-              rel="noopener"
-            >
-              Cancel or Reschedule Appointment
-            </a>
-          </p>
-        `
-        : "";
-
-    confirmationMessage.innerHTML = `
-      <div class="booking-confirmed">
-
-        <h3>
-          Appointment Confirmed ✓
-        </h3>
-
-        <p>
-          <strong>
-            ${escapeHTML(booking.customerName)}
-          </strong>,
-          you're booked with
-          <strong>
-            ${escapeHTML(booking.barberName)}
-          </strong>.
-        </p>
-
-        <p>
-          <strong>Service:</strong>
-          ${escapeHTML(booking.serviceName)}
-          -
-          ${formatPrice(booking.servicePrice)}
-        </p>
-
-        <p>
-          <strong>Date:</strong>
-          ${displayDate}
-        </p>
-
-        <p>
-          <strong>Time:</strong>
-          ${displayTime}
-          -
-          ${convertTo12Hour(endTime)}
-        </p>
-
-        <p>
-          <strong>Payment:</strong>
-          ${escapeHTML(paymentText)}
-        </p>
-
-        <p>
-          <strong>Confirmation #:</strong>
-          ${escapeHTML(booking.id.slice(-6))}
-        </p>
-
-        <p
-          class="sms-demo-message"
-          id="notification-status-${escapeAttribute(booking.id)}"
-        >
-          Checking appointment notifications...
-        </p>
-
-        ${manageLink}
-
-      </div>
-    `;
-
-  }
-
-
-  // ============================================================
-  // APPOINTMENT NOTIFICATIONS
-  // ============================================================
-
-  async function sendPaidAppointmentNotifications(
-    booking
-  ) {
-
-    const status =
-      document.getElementById(
-        `notification-status-${booking.id}`
-      );
+app.get(
+  "/appointment-checkout-status",
+  async (req, res) => {
 
     try {
 
-      const response =
-        await fetch(
-          APPOINTMENT_NOTIFICATION_URL,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type":
-                "application/json"
-            },
-            body:
-              JSON.stringify({
-                sessionId:
-                  booking.paymentReference
-              })
-          }
-        );
+      const stripe =
+        getStripeTestClient();
 
-      const result =
-        await response.json();
+      const sessionId =
+        cleanAppointmentValue(
+          req.query.session_id,
+          200
+        );
 
       if (
-        !response.ok ||
-        !result.success
+        !sessionId ||
+        !sessionId.startsWith("cs_test_")
       ) {
-        throw new Error(
-          result.error ||
-          "Appointment notifications could not be sent."
-        );
+        return res.status(400).json({
+          success: false,
+          error:
+            "Invalid test checkout session."
+        });
       }
 
-      if (
-        result.manageUrl &&
-        !booking.manageUrl
-      ) {
-        booking.manageUrl =
-          result.manageUrl;
-      }
-
-      const parts = [];
-
-      if (booking.smsConsent) {
-        parts.push(
-          result.smsSent
-            ? "✓ Confirmation text sent."
-            : "Confirmation text could not be sent."
+      const session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
         );
-      } else {
-        parts.push(
-          "SMS notifications were not selected."
-        );
-      }
 
-      parts.push(
-        result.emailSent
-          ? "✓ Owner/barber email sent."
-          : "Owner/barber email could not be sent."
+      const metadata =
+        session.metadata || {};
+
+      const confirmed =
+        metadata.appointmentStatus ===
+        "confirmed";
+
+      return res.json({
+        success: true,
+        status:
+          session.status,
+        confirmed,
+        paid:
+          confirmed &&
+          metadata.paymentChoice ===
+          "pay_now",
+        paymentChoice:
+          metadata.paymentChoice || "",
+        amountTotal:
+          Number(
+            metadata.amountPaidCents ||
+            0
+          ),
+        manageUrl:
+          confirmed
+            ? getAppointmentManageUrl(
+                req,
+                session.id
+              )
+            : ""
+      });
+
+    } catch (error) {
+
+      console.error(
+        "Appointment status error:",
+        error
       );
 
-      if (status) {
-        status.textContent =
-          parts.join(" ");
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "The appointment status could not be checked."
+      });
+
+    }
+
+  }
+);
+
+
+app.post(
+  "/send-paid-appointment-notifications",
+  async (req, res) => {
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      const sessionId =
+        cleanAppointmentValue(
+          req.body.sessionId,
+          200
+        );
+
+      if (
+        !sessionId ||
+        !sessionId.startsWith("cs_test_")
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Invalid test checkout session."
+        });
       }
+
+      const session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
+
+      if (
+        session.metadata?.appointmentStatus !==
+        "confirmed"
+      ) {
+        return res.status(409).json({
+          success: false,
+          error:
+            "The appointment has not been confirmed yet."
+        });
+      }
+
+      const result =
+        await sendFinalizedAppointmentNotifications(
+          req,
+          stripe,
+          session
+        );
+
+      return res.json({
+        success: true,
+        ...result
+      });
 
     } catch (error) {
 
@@ -3222,540 +2164,1355 @@ document.addEventListener("DOMContentLoaded", () => {
         error
       );
 
-      if (status) {
-        status.textContent =
-          "The appointment is confirmed, but the notification check failed.";
-      }
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "Appointment notifications could not be processed."
+      });
 
     }
 
   }
+);
 
 
-  // ============================================================
-  // CANCEL BOOKING
-  // ============================================================
+app.get(
+  "/appointment-payment-choice",
+  async (req, res) => {
 
-  function cancelAppointment(
-    bookingId
-  ) {
-
-    const bookings =
-      getBookings();
-
-    const booking =
-      bookings.find(
-        item =>
-          item.id === bookingId
+    const sessionId =
+      cleanAppointmentValue(
+        req.query.session_id,
+        200
       );
-
-    if (booking) {
-      booking.ownerStatus = "canceled";
-      booking.cancellationSource = "Customer Cancellation";
-      booking.cancellationReason = "Customer canceled appointment";
-      booking.customerMessage = "";
-      booking.slotBlocked = false;
-      booking.cancelledAt = new Date().toISOString();
-      booking.updatedAt = booking.cancelledAt;
-    }
-
-    saveBookings(bookings);
-
-    if (
-      booking &&
-      confirmationMessage
-    ) {
-
-      confirmationMessage.innerHTML = `
-        <div class="booking-cancelled">
-
-          <h3>
-            Appointment Cancelled
-          </h3>
-
-          <p>
-            Your appointment with
-            <strong>
-              ${escapeHTML(booking.barberName)}
-            </strong>
-            has been cancelled.
-          </p>
-
-          <p>
-            ${formatDisplayDate(booking.date)}
-            at
-            ${convertTo12Hour(booking.time)}
-            is now available again.
-          </p>
-
-        </div>
-      `;
-
-    }
-
-    updateAvailableTimes();
-
-  }
-
-
-  // ============================================================
-  // STORAGE
-  // ============================================================
-
-  function getBookings() {
 
     try {
-      return JSON.parse(
-        localStorage.getItem(
-          STORAGE_KEY
-        )
-      ) || [];
-    } catch {
-      return [];
-    }
 
-  }
+      const stripe =
+        getStripeTestClient();
 
+      const session =
+        await getCompletedSetupSession(
+          stripe,
+          sessionId
+        );
 
-  function saveBookings(
-    bookings
-  ) {
-
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify(bookings)
-    );
-
-  }
-
-
-  // ============================================================
-  // POLICY LINKS
-  // ============================================================
-
-  function configurePolicyLinks() {
-
-    const hasPrivacy =
-      Boolean(
-        smsSettings.privacyUrl
-      );
-
-    const hasTerms =
-      Boolean(
-        smsSettings.termsUrl
-      );
-
-    if (
-      privacyPolicyLink &&
-      hasPrivacy
-    ) {
-      privacyPolicyLink.href =
-        smsSettings.privacyUrl;
-    }
-
-    if (
-      termsPolicyLink &&
-      hasTerms
-    ) {
-      termsPolicyLink.href =
-        smsSettings.termsUrl;
-    }
-
-    if (smsPolicyLinks) {
-      smsPolicyLinks.hidden =
-        !(hasPrivacy && hasTerms);
-    }
-
-  }
-
-
-  // ============================================================
-  // BUSINESS PRO CTA SCROLL GLOW
-  // ============================================================
-
-  function configureCtaScrollGlow() {
-
-    if (!ctaButton) {
-      return;
-    }
-
-    let glowRunning = false;
-
-    const triggerGlow = () => {
-
-      const rect =
-        ctaButton.getBoundingClientRect();
-
-      const visible =
-        rect.top < window.innerHeight &&
-        rect.bottom > 0;
+      const appointment =
+        appointmentFromSession(session);
 
       if (
-        !visible ||
-        glowRunning
+        session.metadata?.appointmentStatus ===
+        "confirmed"
       ) {
-        return;
-      }
 
-      glowRunning = true;
-
-      ctaButton.classList.add(
-        "scroll-glow"
-      );
-
-      window.setTimeout(
-        () => {
-          ctaButton.classList.remove(
-            "scroll-glow"
+        const manageUrl =
+          getAppointmentManageUrl(
+            req,
+            session.id
           );
-          glowRunning = false;
-        },
-        900
+
+        return sendPage(
+          res,
+          "Appointment Confirmed | Business Pro",
+          `
+            <h1>Appointment Confirmed ✓</h1>
+            <p>Your appointment is already confirmed.</p>
+            <p><a href="${manageUrl}">Cancel or reschedule appointment</a></p>
+            <p>Return to the appointment window.</p>
+          `
+        );
+
+      }
+
+      const amount =
+        `$${(
+          Number(appointment.amountCents || 0) /
+          100
+        ).toFixed(2)}`;
+
+      sendPage(
+        res,
+        "Choose Payment | Business Pro",
+        `
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: rgba(15, 23, 42, 0.72);
+            }
+
+            .payment-choice-card {
+              width: min(92vw, 420px);
+              padding: 34px 28px 30px;
+              background: #ffffff;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
+              text-align: center;
+            }
+
+            .payment-choice-card h1 {
+              margin: 0 0 26px;
+              font-size: 26px;
+              line-height: 1.15;
+              font-weight: 700;
+              color: #111827;
+            }
+
+            .payment-choice-card form {
+              margin: 0;
+            }
+
+            .payment-choice-card form + form {
+              margin-top: 14px;
+            }
+
+            .payment-choice-card button {
+              width: 100%;
+              min-height: 54px;
+              margin: 0;
+              padding: 14px 18px;
+              border: 0;
+              border-radius: 14px;
+              font-size: 17px;
+              font-weight: 700;
+              letter-spacing: 0.01em;
+              cursor: pointer;
+              transition: transform 0.15s ease, box-shadow 0.15s ease;
+            }
+
+            .payment-choice-card button:hover {
+              transform: translateY(-1px);
+            }
+
+            .payment-choice-card .pay-now {
+              background: #111827;
+              color: #ffffff;
+              box-shadow: 0 8px 18px rgba(17, 24, 39, 0.18);
+            }
+
+            .payment-choice-card .pay-store {
+              background: #f3f4f6;
+              color: #111827;
+              border: 1px solid #d1d5db;
+            }
+
+            @media (max-width: 480px) {
+              body {
+                padding: 16px;
+              }
+
+              .payment-choice-card {
+                width: 100%;
+                padding: 30px 20px 24px;
+                border-radius: 20px;
+              }
+
+              .payment-choice-card h1 {
+                font-size: 24px;
+              }
+            }
+          </style>
+
+          <div class="payment-choice-card">
+            <h1>Choose Payment</h1>
+
+            <form method="POST" action="/appointment-choice/pay-now">
+              <input type="hidden" name="sessionId" value="${session.id}">
+              <button class="pay-now" type="submit">PAY NOW</button>
+            </form>
+
+            <form method="POST" action="/appointment-choice/pay-at-store">
+              <input type="hidden" name="sessionId" value="${session.id}">
+              <button class="pay-store" type="submit">PAY AT STORE</button>
+            </form>
+          </div>
+        `
       );
 
-    };
+    } catch (error) {
 
-    window.addEventListener(
-      "scroll",
-      triggerGlow,
-      {
-        passive: true
+      console.error(
+        "Payment choice page error:",
+        error
+      );
+
+      sendPage(
+        res,
+        "Payment Choice Unavailable | Business Pro",
+        `
+          <h1>Payment Choice Unavailable</h1>
+          <p>${cleanAppointmentValue(error.message, 300)}</p>
+        `
+      );
+
+    }
+
+  }
+);
+
+
+app.post(
+  "/appointment-choice/pay-now",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
+
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await getCompletedSetupSession(
+          stripe,
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      if (
+        metadata.appointmentStatus ===
+        "confirmed"
+      ) {
+        return res.redirect(
+          `/appointment-payment-choice?session_id=${encodeURIComponent(session.id)}`
+        );
       }
-    );
+
+      const setupIntent =
+        session.setup_intent;
+
+      const amountCents =
+        Number(
+          metadata.amountCents ||
+          0
+        );
+
+      if (
+        !Number.isFinite(amountCents) ||
+        amountCents < 50
+      ) {
+        throw new Error(
+          "The appointment amount is invalid."
+        );
+      }
+
+      const paymentIntent =
+        await stripe.paymentIntents.create(
+          {
+            amount:
+              amountCents,
+            currency:
+              "usd",
+            customer:
+              session.customer,
+            payment_method:
+              setupIntent.payment_method,
+            confirm:
+              true,
+            off_session:
+              true,
+            description:
+              `${metadata.shopName || "Barber Shop"} — ${metadata.serviceName || "Appointment"}`,
+            metadata: {
+              ...metadata,
+              checkoutSessionId:
+                session.id,
+              paymentChoice:
+                "pay_now"
+            }
+          },
+          {
+            idempotencyKey:
+              `appointment-pay-now-${session.id}`
+          }
+        );
+
+      if (
+        paymentIntent.status !==
+        "succeeded"
+      ) {
+        throw new Error(
+          `Payment did not complete. Stripe status: ${paymentIntent.status}`
+        );
+      }
+
+      const finalMetadata = {
+        ...metadata,
+        appointmentStatus:
+          "confirmed",
+        paymentChoice:
+          "pay_now",
+        paymentIntentId:
+          paymentIntent.id,
+        amountPaidCents:
+          String(
+            paymentIntent.amount_received ||
+            amountCents
+          ),
+        confirmedAt:
+          new Date().toISOString()
+      };
+
+      const notifications =
+        await sendFinalizedAppointmentNotifications(
+          req,
+          stripe,
+          {
+            ...session,
+            metadata:
+              finalMetadata
+          }
+        );
+
+            sendPage(
+        res,
+        "Appointment Confirmed | Business Pro",
+        `
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: rgba(0, 0, 0, 0.88);
+            }
+
+            .business-pro-confirmed-card {
+              width: min(92vw, 430px);
+              padding: 36px 28px 30px;
+              background: #0b0b0b;
+              border: 2px solid #d4af37;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+              text-align: center;
+              color: #ffffff;
+            }
+
+            .success-check {
+              width: 62px;
+              height: 62px;
+              margin: 0 auto 18px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border-radius: 50%;
+              background: #22c55e;
+              color: #ffffff;
+              font-size: 34px;
+              font-weight: 700;
+            }
+
+            .business-pro-confirmed-card h1 {
+              margin: 0 0 12px;
+              color: #d4af37;
+              font-size: 28px;
+            }
+
+            .payment-label {
+              margin: 0;
+              font-size: 18px;
+              color: #ffffff;
+            }
+
+            .confirmation-actions {
+              display: grid;
+              gap: 12px;
+              margin-top: 28px;
+            }
+
+            .confirmation-actions a,
+            .confirmation-actions button {
+              width: 100%;
+              min-height: 52px;
+              margin: 0;
+              padding: 14px 18px;
+              border-radius: 13px;
+              font-size: 16px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+
+            .manage-appointment-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #d4af37;
+              color: #0b0b0b;
+              text-decoration: none;
+              border: 1px solid #d4af37;
+            }
+
+            .close-confirmation-button {
+              background: #111111;
+              color: #d4af37;
+              border: 1px solid #d4af37;
+            }
+          </style>
+
+          <div class="business-pro-confirmed-card">
+
+            <div class="success-check">
+              ✓
+            </div>
+
+            <h1>
+              Appointment Confirmed
+            </h1>
+
+            <p class="payment-label">
+              Paid Online
+            </p>
+
+            <div class="confirmation-actions">
+
+              <a
+                class="manage-appointment-button"
+                href="${notifications.manageUrl}"
+              >
+                Cancel or Reschedule
+              </a>
+
+              <button
+                class="close-confirmation-button"
+                type="button"
+                onclick="window.close()"
+              >
+                Close
+              </button>
+
+            </div>
+
+          </div>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Pay-now appointment error:",
+        error
+      );
+
+      sendPage(
+        res,
+        "Payment Failed | Business Pro",
+        `
+          <h1>Payment Could Not Be Completed</h1>
+          <p>${cleanAppointmentValue(error.message, 300)}</p>
+          <p>Return to the appointment window and try again.</p>
+        `
+      );
+
+    }
 
   }
+);
 
 
-  // ============================================================
-  // LOOKUPS
-  // ============================================================
+app.post(
+  "/appointment-choice/pay-at-store",
+  async (req, res) => {
 
-  function getProfileById(
-    profileId
-  ) {
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
 
-    return profiles.find(
-      profile =>
-        profile.id === profileId
-    ) || null;
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await getCompletedSetupSession(
+          stripe,
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      const finalMetadata = {
+        ...metadata,
+        appointmentStatus:
+          "confirmed",
+        paymentChoice:
+          "pay_at_store",
+        amountPaidCents:
+          "0",
+        confirmedAt:
+          metadata.confirmedAt ||
+          new Date().toISOString()
+      };
+
+      const notifications =
+        await sendFinalizedAppointmentNotifications(
+          req,
+          stripe,
+          {
+            ...session,
+            metadata:
+              finalMetadata
+          }
+        );
+
+           sendPage(
+        res,
+        "Appointment Confirmed | Business Pro",
+        `
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: rgba(0, 0, 0, 0.88);
+            }
+
+            .business-pro-confirmed-card {
+              width: min(92vw, 430px);
+              padding: 36px 28px 30px;
+              background: #0b0b0b;
+              border: 2px solid #d4af37;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+              text-align: center;
+              color: #ffffff;
+            }
+
+            .success-check {
+              width: 62px;
+              height: 62px;
+              margin: 0 auto 18px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border-radius: 50%;
+              background: #22c55e;
+              color: #ffffff;
+              font-size: 34px;
+              font-weight: 700;
+            }
+
+            .business-pro-confirmed-card h1 {
+              margin: 0 0 12px;
+              color: #d4af37;
+              font-size: 28px;
+            }
+
+            .payment-label {
+              margin: 0;
+              font-size: 18px;
+              color: #ffffff;
+            }
+
+            .confirmation-actions {
+              display: grid;
+              gap: 12px;
+              margin-top: 28px;
+            }
+
+            .confirmation-actions a,
+            .confirmation-actions button {
+              width: 100%;
+              min-height: 52px;
+              margin: 0;
+              padding: 14px 18px;
+              border-radius: 13px;
+              font-size: 16px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+
+            .manage-appointment-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #d4af37;
+              color: #0b0b0b;
+              text-decoration: none;
+              border: 1px solid #d4af37;
+            }
+
+            .close-confirmation-button {
+              background: #111111;
+              color: #d4af37;
+              border: 1px solid #d4af37;
+            }
+          </style>
+
+          <div class="business-pro-confirmed-card">
+
+            <div class="success-check">✓</div>
+
+            <h1>Appointment Confirmed</h1>
+
+            <p class="payment-label">
+              Pay at Store
+            </p>
+
+            <div class="confirmation-actions">
+
+              <a
+                class="manage-appointment-button"
+                href="${notifications.manageUrl}"
+              >
+                Cancel or Reschedule
+              </a>
+
+              <button
+                class="close-confirmation-button"
+                type="button"
+                onclick="window.close()"
+              >
+                Close
+              </button>
+
+            </div>
+
+          </div>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Pay-at-store appointment error:",
+        error
+      );
+
+      sendPage(
+        res,
+        "Appointment Could Not Be Confirmed | Business Pro",
+        `
+          <h1>Appointment Could Not Be Confirmed</h1>
+          <p>${cleanAppointmentValue(error.message, 300)}</p>
+          <p>Return to the appointment window and try again.</p>
+        `
+      );
+
+    }
 
   }
+);
 
 
-  function getBookableBarberById(
-    barberId
-  ) {
+app.get(
+  "/manage-appointment",
+  async (req, res) => {
 
-    return bookableBarbers.find(
-      barber =>
-        barber.id === barberId
-    ) || null;
+    const sessionId =
+      cleanAppointmentValue(
+        req.query.session_id,
+        200
+      );
 
-  }
+    const token =
+      cleanAppointmentValue(
+        req.query.token,
+        200
+      );
 
-
-  function getServiceById(
-    serviceId
-  ) {
-
-    return services.find(
-      service =>
-        service.id === serviceId
-    ) || null;
-
-  }
-
-
-  // ============================================================
-  // HELPERS
-  // ============================================================
-
-  function getInitials(
-    name
-  ) {
-
-    return String(name || "")
-      .trim()
-      .split(/\s+/)
-      .map(
-        part =>
-          part.charAt(0)
+    if (
+      !appointmentManageTokenIsValid(
+        sessionId,
+        token
       )
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-
-  }
-
-
-  function formatUSPhone(
-    phone
-  ) {
-
-    let digits =
-      String(phone || "")
-        .replace(/\D/g, "");
-
-    if (
-      digits.length === 11 &&
-      digits.startsWith("1")
     ) {
-      digits =
-        digits.slice(1);
+      return res.status(403).send(
+        "Invalid appointment management link."
+      );
     }
 
-    if (digits.length !== 10) {
-      return "";
-    }
+    try {
 
-    return `+1${digits}`;
+      const stripe =
+        getStripeTestClient();
 
-  }
+      const session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
 
+      const appointment =
+        appointmentFromSession(session);
 
-  function formatPrice(
-    value
-  ) {
+      const status =
+        session.metadata?.appointmentStatus ||
+        "";
 
-    const number =
-      Number(value);
-
-    if (!Number.isFinite(number)) {
-      return "$0";
-    }
-
-    return number.toLocaleString(
-      "en-US",
-      {
-        style:
-          "currency",
-        currency:
-          "USD",
-        minimumFractionDigits:
-          Number.isInteger(number)
-            ? 0
-            : 2,
-        maximumFractionDigits:
-          2
+      if (status === "canceled") {
+        return sendPage(
+          res,
+          "Appointment Cancelled | Business Pro",
+          `
+            <h1>Appointment Cancelled</h1>
+            <p>This appointment has already been cancelled.</p>
+          `
+        );
       }
-    );
 
-  }
+      sendPage(
+        res,
+        "Manage Appointment | Business Pro",
+        `
+          <h1>Manage Appointment</h1>
+          <div class="notice">
+            <p><strong>${appointment.customerName}</strong></p>
+            <p>${appointment.serviceName} with ${appointment.barberName}</p>
+            <p>${appointment.appointmentDate} at ${appointment.appointmentTime}</p>
+          </div>
 
+          <form method="POST" action="/appointment-manage/cancel">
+            <input type="hidden" name="sessionId" value="${session.id}">
+            <input type="hidden" name="token" value="${token}">
+            <button type="submit">CANCEL APPOINTMENT</button>
+          </form>
 
-  function formatDisplayDate(
-    dateValue
-  ) {
+          <form method="POST" action="/appointment-manage/reschedule">
+            <input type="hidden" name="sessionId" value="${session.id}">
+            <input type="hidden" name="token" value="${token}">
+            <button type="submit">RESCHEDULE APPOINTMENT</button>
+          </form>
 
-    const date =
-      parseDateInput(dateValue);
+          <p class="small">This is the current test flow. Cancellation-fee/refund rules will be added separately.</p>
+        `
+      );
 
-    if (!date) {
-      return dateValue;
+    } catch (error) {
+
+      console.error(
+        "Manage appointment page error:",
+        error
+      );
+
+      res.status(500).send(
+        "The appointment could not be loaded."
+      );
+
     }
 
-    return date.toLocaleDateString(
-      "en-US",
-      {
-        weekday:
-          "long",
-        month:
-          "long",
-        day:
-          "numeric",
-        year:
-          "numeric"
-      }
-    );
-
   }
+);
 
 
-  function parseDateInput(
-    value
-  ) {
+app.post(
+  "/appointment-manage/cancel",
+  async (req, res) => {
 
-    if (!value) {
-      return null;
-    }
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
 
-    const parts =
-      value
-        .split("-")
-        .map(Number);
+    const token =
+      cleanAppointmentValue(
+        req.body.token,
+        200
+      );
 
     if (
-      parts.length !== 3 ||
-      parts.some(
-        part =>
-          !Number.isFinite(part)
+      !appointmentManageTokenIsValid(
+        sessionId,
+        token
       )
     ) {
-      return null;
+      return res.status(403).send(
+        "Invalid appointment management link."
+      );
     }
 
-    const date =
-      new Date(
-        parts[0],
-        parts[1] - 1,
-        parts[2]
+    try {
+
+      const stripe =
+        getStripeTestClient();
+
+      let session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
+
+      const metadata =
+        session.metadata || {};
+
+      if (
+        metadata.appointmentStatus ===
+        "canceled"
+      ) {
+        return sendPage(
+          res,
+          "Appointment Cancelled | Business Pro",
+          `
+            <h1>Appointment Cancelled</h1>
+            <p>This appointment has already been cancelled.</p>
+          `
+        );
+      }
+
+      await stripe.checkout.sessions.update(
+        session.id,
+        {
+          metadata: {
+            ...metadata,
+            appointmentStatus:
+              "canceled",
+            cancellationSource:
+              "Customer Cancellation",
+            canceledAt:
+              new Date().toISOString()
+          }
+        }
       );
 
-    date.setHours(
-      0,
-      0,
-      0,
-      0
-    );
+      session =
+        await stripe.checkout.sessions.retrieve(
+          session.id
+        );
 
-    return date;
+      const appointment =
+        appointmentFromSession(session);
 
-  }
+      try {
+        if (appointment.smsConsent) {
+          await sendTwilioMessage(
+            appointment.phone,
+            `${appointment.shopName}: Your appointment with ${appointment.barberName} on ${appointment.appointmentDate} at ${appointment.appointmentTime} has been cancelled.`
+          );
+        }
+      } catch (error) {
+        console.error(
+          "Cancellation SMS error:",
+          error
+        );
+      }
 
+      try {
+        await sendAppointmentCancellationEmail(
+          appointment,
+          session.id,
+          "Customer Cancellation"
+        );
+      } catch (error) {
+        console.error(
+          "Cancellation email error:",
+          error
+        );
+      }
 
-  function toDateInputValue(
-    date
-  ) {
+      sendPage(
+        res,
+        "Appointment Cancelled | Business Pro",
+        `
+          <h1>Appointment Cancelled ✓</h1>
+          <p>Your appointment has been cancelled.</p>
+          <p class="small">This test does not apply the final cancellation-fee/refund policy yet.</p>
+        `
+      );
 
-    const year =
-      date.getFullYear();
+    } catch (error) {
 
-    const month =
-      String(
-        date.getMonth() + 1
-      ).padStart(2, "0");
+      console.error(
+        "Customer cancellation error:",
+        error
+      );
 
-    const day =
-      String(
-        date.getDate()
-      ).padStart(2, "0");
+      res.status(500).send(
+        "The appointment could not be cancelled."
+      );
 
-    return `${year}-${month}-${day}`;
-
-  }
-
-
-  function convertTo12Hour(
-    time
-  ) {
-
-    if (!time) {
-      return "";
     }
 
-    const [hourValue, minuteValue] =
-      time
-        .split(":")
-        .map(Number);
+  }
+);
+
+
+app.post(
+  "/appointment-manage/reschedule",
+  async (req, res) => {
+
+    const sessionId =
+      cleanAppointmentValue(
+        req.body.sessionId,
+        200
+      );
+
+    const token =
+      cleanAppointmentValue(
+        req.body.token,
+        200
+      );
 
     if (
-      !Number.isFinite(hourValue) ||
-      !Number.isFinite(minuteValue)
+      !appointmentManageTokenIsValid(
+        sessionId,
+        token
+      )
     ) {
-      return time;
+      return res.status(403).send(
+        "Invalid appointment management link."
+      );
     }
 
-    const period =
-      hourValue >= 12
-        ? "PM"
-        : "AM";
+    try {
 
-    const hour =
-      hourValue % 12 || 12;
+      const stripe =
+        getStripeTestClient();
 
-    return `${hour}:${String(minuteValue).padStart(2, "0")} ${period}`;
+      let session =
+        await stripe.checkout.sessions.retrieve(
+          sessionId
+        );
 
-  }
+      const metadata =
+        session.metadata || {};
 
-
-  function timeToMinutes(
-    time
-  ) {
-
-    const [hours, minutes] =
-      String(time || "0:0")
-        .split(":")
-        .map(Number);
-
-    return (
-      (Number(hours) || 0) * 60 +
-      (Number(minutes) || 0)
-    );
-
-  }
-
-
-  function minutesToTime(
-    totalMinutes
-  ) {
-
-    const hours =
-      Math.floor(
-        totalMinutes / 60
+      await stripe.checkout.sessions.update(
+        session.id,
+        {
+          metadata: {
+            ...metadata,
+            appointmentStatus:
+              "reschedule-requested",
+            rescheduleRequestedAt:
+              new Date().toISOString()
+          }
+        }
       );
 
-    const minutes =
-      totalMinutes % 60;
+      session =
+        await stripe.checkout.sessions.retrieve(
+          session.id
+        );
 
-    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+      const appointment =
+        appointmentFromSession(session);
+
+      try {
+        await sendAppointmentCancellationEmail(
+          appointment,
+          session.id,
+          "Customer Reschedule Request"
+        );
+      } catch (error) {
+        console.error(
+          "Reschedule email error:",
+          error
+        );
+      }
+
+      const bookingBaseUrl =
+        String(
+          process.env.CUSTOMER_BOOKING_URL ||
+          ""
+        ).trim();
+
+      if (bookingBaseUrl) {
+
+        const bookingUrl =
+          new URL(bookingBaseUrl);
+
+        bookingUrl.searchParams.set(
+          "booking",
+          "open"
+        );
+
+        bookingUrl.searchParams.set(
+          "reschedule",
+          "1"
+        );
+
+        return res.redirect(
+          303,
+          bookingUrl.toString()
+        );
+
+      }
+
+      return sendPage(
+        res,
+        "Reschedule Appointment | Business Pro",
+        `
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              background: #f8fafc;
+            }
+
+            .reschedule-card {
+              width: min(92vw, 430px);
+              padding: 38px 28px;
+              background: #ffffff;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
+            }
+
+            .reschedule-card h1 {
+              margin: 0 0 12px;
+              font-size: 28px;
+              color: #111827;
+            }
+
+            .reschedule-card p {
+              margin: 0;
+              color: #4b5563;
+            }
+          </style>
+
+          <div class="reschedule-card">
+            <h1>Reschedule Appointment</h1>
+            <p>Open the Barber Shop Customer Interface and choose your new appointment.</p>
+          </div>
+        `
+      );
+
+    } catch (error) {
+
+      console.error(
+        "Reschedule request error:",
+        error
+      );
+
+      res.status(500).send(
+        "The reschedule request could not be processed."
+      );
+
+    }
 
   }
+);
 
 
-  function addMinutes(
-    time,
-    amount
-  ) {
+app.get(
+  "/appointment-payment-cancelled",
+  (req, res) => {
 
-    return minutesToTime(
-      timeToMinutes(time) +
-      amount
+    sendPage(
+      res,
+      "Card Setup Cancelled | Business Pro",
+      `
+        <h1>Appointment Not Confirmed</h1>
+        <p>The secure card step was cancelled. No appointment was confirmed.</p>
+        <p><strong>TEST MODE:</strong> No real money was charged.</p>
+      `
     );
 
   }
+);
 
 
-  function createBookingId() {
+// ============================================================
+// BUSINESS PRO LOCAL STRIPE CHECKOUT
+// ============================================================
 
-    return `BPL-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)
-      .toUpperCase()}`;
+const BUSINESS_PRO_PLANS = {
 
+  basic: {
+    name: "Basic",
+    setupAmount: 99500,
+    monthlyAmount: 4900,
+    advertisingRate: "$0.75 per click",
+    advertisingMinimum: "$25 monthly minimum"
+  },
+
+  professional: {
+    name: "Professional",
+    setupAmount: 149500,
+    monthlyAmount: 7900,
+    advertisingRate: "$1.25 per click",
+    advertisingMinimum: "$50 monthly minimum"
+  },
+
+  "business-pro": {
+    name: "Business Pro",
+    setupAmount: 249500,
+    monthlyAmount: 14900,
+    advertisingRate: "$2.00 per click",
+    advertisingMinimum: "$75 monthly minimum"
   }
 
+};
 
-  function escapeHTML(
-    value
-  ) {
 
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+function cleanCheckoutValue(value, maxLength = 500) {
+
+  return String(value || "")
+    .trim()
+    .slice(0, maxLength);
+
+}
+
+
+app.post(
+  "/create-checkout-session",
+  async (req, res) => {
+
+    try {
+
+      const stripeSecretKey =
+        process.env.STRIPE_SECRET_KEY;
+
+
+      if (!stripeSecretKey) {
+
+        return res.status(500).json({
+
+          success: false,
+
+          error:
+            "Stripe server configuration is incomplete."
+
+        });
+
+      }
+
+
+      const stripe =
+        new Stripe(stripeSecretKey);
+
+
+      const planKey =
+        cleanCheckoutValue(
+          req.body.plan,
+          50
+        );
+
+
+      const plan =
+        BUSINESS_PRO_PLANS[
+          planKey
+        ];
+
+
+      if (!plan) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Please choose a valid Business Pro Local package."
+
+        });
+
+      }
+
+
+      const businessName =
+        cleanCheckoutValue(
+          req.body.businessName,
+          200
+        );
+
+
+      const ownerName =
+        cleanCheckoutValue(
+          req.body.ownerName,
+          200
+        );
+
+
+      const phone =
+        cleanCheckoutValue(
+          req.body.phone,
+          100
+        );
+
+
+      const email =
+        cleanCheckoutValue(
+          req.body.email,
+          320
+        );
+
+
+      const businessAddress =
+        cleanCheckoutValue(
+          req.body.businessAddress,
+          300
+        );
+
+
+      const businessNotes =
+        cleanCheckoutValue(
+          req.body.businessNotes,
+          500
+        );
+
+
+      const advertising =
+        req.body.advertising === "on"
+          ? "ON"
+          : "OFF";
+
+
+      if (
+        !businessName ||
+        !ownerName ||
+        !phone ||
+        !email
+      ) {
+
+        return res.status(400).json({
+
+          success: false,
+
+          error:
+            "Business name, contact name, phone number, and email address are required."
+
+        });
+
+      }
+
+
+      const metadata = {
+        businessName,
+        ownerName,
+        phone,
+        email,
+        businessAddress,
+        plan: plan.name,
+        planKey,
+        advertising,
+        advertisingRate:
+          advertising === "ON"
+            ? plan.advertisingRate
+            : "Not selected",
+        advertisingMinimum:
+          advertising === "ON"
+            ? plan.advertisingMinimum
+            : "Not selected",
+        businessNotes
+      };
+
+
+      const session =
+        await stripe.checkout.sessions.create({
+
+          mode: "subscription",
+
+          customer_email:
+            email,
+
+          line_items: [
+
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name:
+                    `Business Pro Local ${plan.name} Website Setup`
+                },
+                unit_amount:
+                  plan.setupAmount
+              },
+              quantity: 1
+            },
+
+            {
+              price_data: {
+                currency: "usd",
+                product_data: {
+                  name:
+                    `Business Pro Local ${plan.name} Monthly Service`
+                },
+                unit_amount:
+                  plan.monthlyAmount,
+                recurring: {
+                  interval: "month"
+                }
+              },
+              quantity: 1
+            }
+
+          ],
+
+          metadata,
+
+          subscription_data: {
+            metadata
+          },
+
+          success_url:
+            "https://villagebarber.businessprolocal.com/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}",
+
+          cancel_url:
+            "https://villagebarber.businessprolocal.com/join.html?payment=cancelled"
+
+        });
+
+
+      return res.json({
+        success: true,
+        url: session.url
+      });
+
+
+    } catch (error) {
+
+      console.error(
+        "Stripe checkout error:",
+        error
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        error:
+          error.message ||
+          "The Stripe checkout session could not be created."
+
+      });
+
+    }
 
   }
+);
 
 
-  function escapeAttribute(
-    value
-  ) {
-    return escapeHTML(value);
+// ============================================================
+// START SERVER
+// ============================================================
+
+const PORT =
+  process.env.PORT || 3000;
+
+
+app.listen(
+  PORT,
+  () => {
+
+    console.log(
+      `Business Pro SMS server running on port ${PORT}`
+    );
+
   }
-
-
-  function escapeCssUrl(
-    value
-  ) {
-
-    return String(value ?? "")
-      .replace(/\\/g, "\\\\")
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, "")
-      .replace(/\r/g, "");
-
-  }
-
-});
+);
