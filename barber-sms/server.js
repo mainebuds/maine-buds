@@ -2436,9 +2436,9 @@ app.post(
           }
         );
 
-      sendPage(
+            sendPage(
         res,
-        "Payment Approved | Business Pro",
+        "Appointment Confirmed | Business Pro",
         `
           <style>
             body {
@@ -2449,44 +2449,115 @@ app.post(
               display: flex;
               align-items: center;
               justify-content: center;
-              text-align: center;
-              background: #f8fafc;
+              background: rgba(0, 0, 0, 0.88);
             }
 
-            .payment-approved-card {
+            .business-pro-confirmed-card {
               width: min(92vw, 430px);
-              padding: 42px 28px;
-              background: #ffffff;
+              padding: 36px 28px 30px;
+              background: #0b0b0b;
+              border: 2px solid #d4af37;
               border-radius: 22px;
-              box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+              text-align: center;
+              color: #ffffff;
             }
 
-            .payment-approved-card h1 {
-              margin: 0 0 10px;
-              font-size: 30px;
-              line-height: 1.15;
-              color: #111827;
+            .success-check {
+              width: 62px;
+              height: 62px;
+              margin: 0 auto 18px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border-radius: 50%;
+              background: #22c55e;
+              color: #ffffff;
+              font-size: 34px;
+              font-weight: 700;
             }
 
-            .payment-approved-card h2 {
+            .business-pro-confirmed-card h1 {
+              margin: 0 0 12px;
+              color: #d4af37;
+              font-size: 28px;
+            }
+
+            .payment-label {
               margin: 0;
-              font-size: 22px;
-              line-height: 1.25;
-              font-weight: 600;
-              color: #374151;
+              font-size: 18px;
+              color: #ffffff;
+            }
+
+            .confirmation-actions {
+              display: grid;
+              gap: 12px;
+              margin-top: 28px;
+            }
+
+            .confirmation-actions a,
+            .confirmation-actions button {
+              width: 100%;
+              min-height: 52px;
+              margin: 0;
+              padding: 14px 18px;
+              border-radius: 13px;
+              font-size: 16px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+
+            .manage-appointment-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #d4af37;
+              color: #0b0b0b;
+              text-decoration: none;
+              border: 1px solid #d4af37;
+            }
+
+            .close-confirmation-button {
+              background: #111111;
+              color: #d4af37;
+              border: 1px solid #d4af37;
             }
           </style>
 
-          <div class="payment-approved-card">
-            <h1>Payment Approved</h1>
-            <h2>Appointment Confirmed</h2>
-          </div>
+          <div class="business-pro-confirmed-card">
 
-          <script>
-            setTimeout(() => {
-              window.close();
-            }, 15000);
-          </script>
+            <div class="success-check">
+              ✓
+            </div>
+
+            <h1>
+              Appointment Confirmed
+            </h1>
+
+            <p class="payment-label">
+              Paid Online
+            </p>
+
+            <div class="confirmation-actions">
+
+              <a
+                class="manage-appointment-button"
+                href="${notifications.manageUrl}"
+              >
+                Cancel or Reschedule
+              </a>
+
+              <button
+                class="close-confirmation-button"
+                type="button"
+                onclick="window.close()"
+              >
+                Close
+              </button>
+
+            </div>
+
+          </div>
         `
       );
 
@@ -2561,19 +2632,124 @@ app.post(
           }
         );
 
-      sendPage(
+           sendPage(
         res,
         "Appointment Confirmed | Business Pro",
         `
-          <h1>Appointment Confirmed ✓</h1>
-          <div class="notice">
-            <p><strong>Payment:</strong> Pay at store</p>
-            <p>Your card is saved securely in Stripe Test Mode for this test appointment.</p>
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: rgba(0, 0, 0, 0.88);
+            }
+
+            .business-pro-confirmed-card {
+              width: min(92vw, 430px);
+              padding: 36px 28px 30px;
+              background: #0b0b0b;
+              border: 2px solid #d4af37;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+              text-align: center;
+              color: #ffffff;
+            }
+
+            .success-check {
+              width: 62px;
+              height: 62px;
+              margin: 0 auto 18px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              border-radius: 50%;
+              background: #22c55e;
+              color: #ffffff;
+              font-size: 34px;
+              font-weight: 700;
+            }
+
+            .business-pro-confirmed-card h1 {
+              margin: 0 0 12px;
+              color: #d4af37;
+              font-size: 28px;
+            }
+
+            .payment-label {
+              margin: 0;
+              font-size: 18px;
+              color: #ffffff;
+            }
+
+            .confirmation-actions {
+              display: grid;
+              gap: 12px;
+              margin-top: 28px;
+            }
+
+            .confirmation-actions a,
+            .confirmation-actions button {
+              width: 100%;
+              min-height: 52px;
+              margin: 0;
+              padding: 14px 18px;
+              border-radius: 13px;
+              font-size: 16px;
+              font-weight: 700;
+              cursor: pointer;
+            }
+
+            .manage-appointment-button {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              background: #d4af37;
+              color: #0b0b0b;
+              text-decoration: none;
+              border: 1px solid #d4af37;
+            }
+
+            .close-confirmation-button {
+              background: #111111;
+              color: #d4af37;
+              border: 1px solid #d4af37;
+            }
+          </style>
+
+          <div class="business-pro-confirmed-card">
+
+            <div class="success-check">✓</div>
+
+            <h1>Appointment Confirmed</h1>
+
+            <p class="payment-label">
+              Pay at Store
+            </p>
+
+            <div class="confirmation-actions">
+
+              <a
+                class="manage-appointment-button"
+                href="${notifications.manageUrl}"
+              >
+                Cancel or Reschedule
+              </a>
+
+              <button
+                class="close-confirmation-button"
+                type="button"
+                onclick="window.close()"
+              >
+                Close
+              </button>
+
+            </div>
+
           </div>
-          <p>${notifications.smsSent ? "Confirmation text sent." : "Confirmation text was not sent."}</p>
-          <p>${notifications.emailSent ? "Owner/barber email sent." : "Owner/barber email was not sent."}</p>
-          <p><a href="${notifications.manageUrl}">Cancel or reschedule appointment</a></p>
-          <p>Return to the appointment window.</p>
         `
       );
 
