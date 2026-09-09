@@ -2438,17 +2438,55 @@ app.post(
 
       sendPage(
         res,
-        "Appointment Confirmed | Business Pro",
+        "Payment Approved | Business Pro",
         `
-          <h1>Payment Approved — Appointment Confirmed ✓</h1>
-          <div class="notice">
-            <p><strong>TEST MODE:</strong> No real money was charged.</p>
-            <p><strong>Paid:</strong> $${(amountCents / 100).toFixed(2)}</p>
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              background: #f8fafc;
+            }
+
+            .payment-approved-card {
+              width: min(92vw, 430px);
+              padding: 42px 28px;
+              background: #ffffff;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
+            }
+
+            .payment-approved-card h1 {
+              margin: 0 0 10px;
+              font-size: 30px;
+              line-height: 1.15;
+              color: #111827;
+            }
+
+            .payment-approved-card h2 {
+              margin: 0;
+              font-size: 22px;
+              line-height: 1.25;
+              font-weight: 600;
+              color: #374151;
+            }
+          </style>
+
+          <div class="payment-approved-card">
+            <h1>Payment Approved</h1>
+            <h2>Appointment Confirmed</h2>
           </div>
-          <p>${notifications.smsSent ? "Confirmation text sent." : "Confirmation text was not sent."}</p>
-          <p>${notifications.emailSent ? "Owner/barber email sent." : "Owner/barber email was not sent."}</p>
-          <p><a href="${notifications.manageUrl}">Cancel or reschedule appointment</a></p>
-          <p>Return to the appointment window.</p>
+
+          <script>
+            setTimeout(() => {
+              window.close();
+            }, 15000);
+          </script>
         `
       );
 
@@ -2869,25 +2907,73 @@ app.post(
       const bookingBaseUrl =
         String(
           process.env.CUSTOMER_BOOKING_URL ||
-          "https://villagebarber.businessprolocal.com/index.html"
+          ""
+        ).trim();
+
+      if (bookingBaseUrl) {
+
+        const bookingUrl =
+          new URL(bookingBaseUrl);
+
+        bookingUrl.searchParams.set(
+          "booking",
+          "open"
         );
 
-      const bookingUrl =
-        new URL(bookingBaseUrl);
+        bookingUrl.searchParams.set(
+          "reschedule",
+          "1"
+        );
 
-      bookingUrl.searchParams.set(
-        "booking",
-        "open"
-      );
+        return res.redirect(
+          303,
+          bookingUrl.toString()
+        );
 
-      bookingUrl.searchParams.set(
-        "reschedule",
-        "1"
-      );
+      }
 
-      return res.redirect(
-        303,
-        bookingUrl.toString()
+      return sendPage(
+        res,
+        "Reschedule Appointment | Business Pro",
+        `
+          <style>
+            body {
+              max-width: none;
+              min-height: 100vh;
+              margin: 0;
+              padding: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              text-align: center;
+              background: #f8fafc;
+            }
+
+            .reschedule-card {
+              width: min(92vw, 430px);
+              padding: 38px 28px;
+              background: #ffffff;
+              border-radius: 22px;
+              box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
+            }
+
+            .reschedule-card h1 {
+              margin: 0 0 12px;
+              font-size: 28px;
+              color: #111827;
+            }
+
+            .reschedule-card p {
+              margin: 0;
+              color: #4b5563;
+            }
+          </style>
+
+          <div class="reschedule-card">
+            <h1>Reschedule Appointment</h1>
+            <p>Open the Barber Shop Customer Interface and choose your new appointment.</p>
+          </div>
+        `
       );
 
     } catch (error) {
