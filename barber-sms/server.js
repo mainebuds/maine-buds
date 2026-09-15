@@ -2072,6 +2072,16 @@ app.get(
         success: true,
         status:
           session.status,
+        appointmentStatus:
+          metadata.appointmentStatus || "",
+        bookingId:
+          metadata.bookingId ||
+          session.client_reference_id ||
+          "",
+        cancellationSource:
+          metadata.cancellationSource || "",
+        canceledAt:
+          metadata.canceledAt || "",
         confirmed,
         paid:
           confirmed &&
