@@ -2321,7 +2321,32 @@ app.get(
               color: #111827;
               border: 1px solid #d1d5db;
             }
+            /* BUSINESS PRO BLACK + GOLD PAYMENT THEME */
+            body {
+              background: rgba(0, 0, 0, 0.88);
+            }
 
+            .payment-choice-card {
+              background: #0b0b0b;
+              border: 2px solid #d4af37;
+              box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+            }
+
+            .payment-choice-card h1 {
+              color: #d4af37;
+            }
+
+            .payment-choice-card .pay-now {
+              background: #d4af37;
+              color: #0b0b0b;
+              border: 1px solid #d4af37;
+            }
+
+            .payment-choice-card .pay-store {
+              background: #111111;
+              color: #d4af37;
+              border: 1px solid #d4af37;
+            }
             @media (max-width: 480px) {
               body {
                 padding: 16px;
