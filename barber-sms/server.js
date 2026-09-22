@@ -2,6 +2,7 @@
 const express = require("express");
 const Stripe = require("stripe");
 const crypto = require("crypto");
+const businessStore = require("./lib/businessStore");
 
 const app = express();
 
@@ -99,6 +100,117 @@ app.use((req, res, next) => {
 
   next();
 
+});
+
+
+// ============================================================
+// BUSINESS PRO ADMIN API (shared multi-business "backbone")
+//
+// Backs ADMIN_ACODE/admin.html. Replaces the old per-browser
+// localStorage prototype with real, shared, server-persisted data
+// (see lib/businessStore.js) so the same business list/records are
+// visible no matter which computer or browser opens the admin panel.
+//
+// A prototype PIN gate (8642) still lives in admin.html for
+// "protected" actions — that is UI-only, not real auth. Before any
+// real customer's data goes through this, these routes need actual
+// authentication (an admin login), not just a client-side PIN.
+// ============================================================
+
+app.get("/api/businesses", (req, res) => {
+  res.json({ success: true, businesses: businessStore.listBusinesses() });
+});
+
+app.post("/api/businesses", (req, res) => {
+  try {
+    const { id, name, owner } = req.body || {};
+    const business = businessStore.createBusiness({ id, name, owner });
+    res.json({ success: true, business });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/businesses/:id", (req, res) => {
+  const business = businessStore.getBusiness(req.params.id);
+  if (!business) return res.status(404).json({ success: false, error: "Business not found" });
+  res.json({ success: true, business });
+});
+
+app.patch("/api/businesses/:id/profile", (req, res) => {
+  try {
+    const business = businessStore.updateBusinessProfile(req.params.id, req.body || {});
+    businessStore.logActivity(req.params.id, { action: "UPDATE BUSINESS PROFILE", area: "business profile", protectedAction: true });
+    res.json({ success: true, business });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post("/api/businesses/:id/suspend", (req, res) => {
+  try {
+    const business = businessStore.setBusinessStatus(req.params.id, "suspended");
+    businessStore.logActivity(req.params.id, { action: "SUSPEND BUSINESS", area: "business lifecycle", protectedAction: true });
+    res.json({ success: true, business });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post("/api/businesses/:id/reactivate", (req, res) => {
+  try {
+    const business = businessStore.setBusinessStatus(req.params.id, "active");
+    businessStore.logActivity(req.params.id, { action: "REACTIVATE BUSINESS", area: "business lifecycle", protectedAction: false });
+    res.json({ success: true, business });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.put("/api/businesses/:id/notes", (req, res) => {
+  try {
+    const business = businessStore.setNotes(req.params.id, (req.body || {}).notes);
+    businessStore.logActivity(req.params.id, { action: "SAVE SUPPORT NOTES", area: "admin support notes", protectedAction: false });
+    res.json({ success: true, business });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/businesses/:id/records/:area", (req, res) => {
+  try {
+    const records = businessStore.getRecords(req.params.id, req.params.area);
+    res.json({ success: true, records });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.post("/api/businesses/:id/records/:area", (req, res) => {
+  try {
+    const record = businessStore.addRecord(req.params.id, req.params.area, req.body || {});
+    businessStore.logActivity(req.params.id, { action: `ADD ${req.params.area.toUpperCase()} RECORD`, area: record.title, protectedAction: false });
+    res.json({ success: true, record });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.patch("/api/businesses/:id/records/:area/:recordId", (req, res) => {
+  try {
+    const record = businessStore.updateRecord(req.params.id, req.params.area, req.params.recordId, req.body || {});
+    const protectedAction = !!(req.body || {}).protectedAction;
+    businessStore.logActivity(req.params.id, { action: `${(req.body.action || "UPDATE").toUpperCase()} RECORD`, area: `${req.params.area}/${record.title}`, protectedAction });
+    res.json({ success: true, record });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+app.get("/api/businesses/:id/activity", (req, res) => {
+  const business = businessStore.getBusiness(req.params.id);
+  if (!business) return res.status(404).json({ success: false, error: "Business not found" });
+  res.json({ success: true, activity: business.activity || [] });
 });
 
 
@@ -3457,13 +3569,39 @@ app.post(
       };
 
 
+      // ------------------------------------------------------------
+      // BILLING POLICY (per HNH handoff, Section 10 — LOCKED LOGIC):
+      // Signup charges the ONE-TIME SETUP FEE ONLY. Monthly service
+      // billing does NOT start here — it starts later, after the
+      // customer approves public launch, via /start-monthly-service.
+      // We save the payment method now (setup_future_usage: "off_session")
+      // so that later off-session monthly charge can be made without
+      // asking the customer to re-enter their card.
+      //
+      // This replaces the old `mode: "subscription"` version of this
+      // endpoint, which incorrectly started monthly billing at signup
+      // and was flagged as obsolete in the handoff doc. (Note: this
+      // was rebuilt from the handoff's written policy — I don't have
+      // COPY_THIS_SERVER_JS.txt to diff against; if you still have
+      // that file, send it and I'll verify line-for-line.)
+      // ------------------------------------------------------------
+
+      const baseUrl = getRequestBaseUrl(req);
+
       const session =
         await stripe.checkout.sessions.create({
 
-          mode: "subscription",
+          mode: "payment",
+
+          customer_creation: "always",
 
           customer_email:
             email,
+
+          payment_intent_data: {
+            setup_future_usage: "off_session",
+            metadata
+          },
 
           line_items: [
 
@@ -3478,37 +3616,20 @@ app.post(
                   plan.setupAmount
               },
               quantity: 1
-            },
-
-            {
-              price_data: {
-                currency: "usd",
-                product_data: {
-                  name:
-                    `Business Pro Local ${plan.name} Monthly Service`
-                },
-                unit_amount:
-                  plan.monthlyAmount,
-                recurring: {
-                  interval: "month"
-                }
-              },
-              quantity: 1
             }
 
           ],
 
-          metadata,
-
-          subscription_data: {
-            metadata
+          metadata: {
+            ...metadata,
+            monthlyAmount: String(plan.monthlyAmount)
           },
 
           success_url:
-            "https://villagebarber.businessprolocal.com/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}",
+            `${baseUrl}/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}`,
 
           cancel_url:
-            "https://villagebarber.businessprolocal.com/join.html?payment=cancelled"
+            `${baseUrl}/join.html?payment=cancelled`
 
         });
 
@@ -3537,6 +3658,91 @@ app.post(
 
       });
 
+    }
+
+  }
+);
+
+
+// ============================================================
+// START MONTHLY SERVICE (called by Owner/Admin at public launch)
+//
+// Per the locked billing policy: monthly service billing starts
+// only once the customer has approved public launch. This endpoint
+// takes the Stripe Checkout Session id from signup, pulls the saved
+// customer + payment method (saved via setup_future_usage at
+// signup), and creates a monthly subscription for that customer.
+// The subscription's first invoice is scheduled to bill one month
+// out, covering the first completed month of service, per:
+// "Your first monthly service charge will occur one month after
+// launch and will cover your first completed month of service."
+// ============================================================
+
+app.post(
+  "/start-monthly-service",
+  async (req, res) => {
+
+    try {
+
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeSecretKey) {
+        return res.status(500).json({ success: false, error: "Stripe server configuration is incomplete." });
+      }
+      const stripe = new Stripe(stripeSecretKey);
+
+      const checkoutSessionId = cleanCheckoutValue(req.body.checkoutSessionId, 200);
+      if (!checkoutSessionId) {
+        return res.status(400).json({ success: false, error: "checkoutSessionId is required." });
+      }
+
+      const checkoutSession = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
+        expand: ["payment_intent.payment_method"]
+      });
+
+      const customerId = checkoutSession.customer;
+      const planKey = cleanCheckoutValue(checkoutSession.metadata?.planKey, 50);
+      const plan = BUSINESS_PRO_PLANS[planKey];
+
+      if (!customerId || !plan) {
+        return res.status(400).json({ success: false, error: "Could not find the saved customer/plan for this checkout session." });
+      }
+
+      const paymentMethodId = checkoutSession.payment_intent?.payment_method?.id
+        || checkoutSession.payment_intent?.payment_method;
+
+      if (paymentMethodId) {
+        await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId }).catch(() => {});
+        await stripe.customers.update(customerId, {
+          invoice_settings: { default_payment_method: paymentMethodId }
+        });
+      }
+
+      const billingCycleAnchor = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
+
+      const subscription = await stripe.subscriptions.create({
+        customer: customerId,
+        items: [{
+          price_data: {
+            currency: "usd",
+            product_data: { name: `Business Pro Local ${plan.name} Monthly Service` },
+            unit_amount: plan.monthlyAmount,
+            recurring: { interval: "month" }
+          }
+        }],
+        billing_cycle_anchor: billingCycleAnchor,
+        proration_behavior: "none",
+        metadata: {
+          businessName: checkoutSession.metadata?.businessName || "",
+          planKey,
+          launchedAt: new Date().toISOString()
+        }
+      });
+
+      return res.json({ success: true, subscriptionId: subscription.id, firstChargeAt: new Date(billingCycleAnchor * 1000).toISOString() });
+
+    } catch (error) {
+      console.error("Start monthly service error:", error);
+      return res.status(500).json({ success: false, error: error.message || "Could not start monthly service billing." });
     }
 
   }
