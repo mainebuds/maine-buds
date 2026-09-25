@@ -1,24 +1,45 @@
+
+TomsPC, Connected
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Server · JS
 // TEST 2 — card first, then PAY NOW or PAY AT STORE, with manage links
 const express = require("express");
 const Stripe = require("stripe");
 const crypto = require("crypto");
 const businessStore = require("./lib/businessStore");
-
+ 
 const app = express();
-
-
+ 
+ 
 // ============================================================
 // TABLET / MOBILE CHECKOUT LAUNCH HANDOFF
 // ============================================================
-
+ 
 const appointmentCheckoutLaunches =
   new Map();
-
+ 
 function rememberAppointmentCheckoutLaunch(
   bookingId,
   session
 ) {
-
+ 
   appointmentCheckoutLaunches.set(
     bookingId,
     {
@@ -29,22 +50,22 @@ function rememberAppointmentCheckoutLaunch(
         (5 * 60 * 1000)
     }
   );
-
+ 
 }
-
+ 
 function getAppointmentCheckoutLaunch(
   bookingId
 ) {
-
+ 
   const launch =
     appointmentCheckoutLaunches.get(
       bookingId
     );
-
+ 
   if (!launch) {
     return null;
   }
-
+ 
   if (
     !launch.expiresAt ||
     launch.expiresAt < Date.now()
@@ -54,55 +75,55 @@ function getAppointmentCheckoutLaunch(
     );
     return null;
   }
-
+ 
   return launch;
-
+ 
 }
-
-
+ 
+ 
 // ============================================================
 // BODY PARSING
 // ============================================================
-
+ 
 app.use(express.json());
-
+ 
 app.use(
   express.urlencoded({
     extended: true
   })
 );
-
-
+ 
+ 
 // ============================================================
 // CORS
 // ============================================================
-
+ 
 app.use((req, res, next) => {
-
+ 
   res.setHeader(
     "Access-Control-Allow-Origin",
     "*"
   );
-
+ 
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type"
   );
-
+ 
   res.setHeader(
     "Access-Control-Allow-Methods",
     "GET, POST, OPTIONS"
   );
-
+ 
   if (req.method === "OPTIONS") {
     return res.sendStatus(204);
   }
-
+ 
   next();
-
+ 
 });
-
-
+ 
+ 
 // ============================================================
 // BUSINESS PRO ADMIN API (shared multi-business "backbone")
 //
@@ -116,11 +137,11 @@ app.use((req, res, next) => {
 // real customer's data goes through this, these routes need actual
 // authentication (an admin login), not just a client-side PIN.
 // ============================================================
-
+ 
 app.get("/api/businesses", (req, res) => {
   res.json({ success: true, businesses: businessStore.listBusinesses() });
 });
-
+ 
 app.post("/api/businesses", (req, res) => {
   try {
     const { id, name, owner } = req.body || {};
@@ -130,13 +151,13 @@ app.post("/api/businesses", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.get("/api/businesses/:id", (req, res) => {
   const business = businessStore.getBusiness(req.params.id);
   if (!business) return res.status(404).json({ success: false, error: "Business not found" });
   res.json({ success: true, business });
 });
-
+ 
 app.patch("/api/businesses/:id/profile", (req, res) => {
   try {
     const business = businessStore.updateBusinessProfile(req.params.id, req.body || {});
@@ -146,7 +167,7 @@ app.patch("/api/businesses/:id/profile", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.post("/api/businesses/:id/suspend", (req, res) => {
   try {
     const business = businessStore.setBusinessStatus(req.params.id, "suspended");
@@ -156,7 +177,7 @@ app.post("/api/businesses/:id/suspend", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.post("/api/businesses/:id/reactivate", (req, res) => {
   try {
     const business = businessStore.setBusinessStatus(req.params.id, "active");
@@ -166,7 +187,7 @@ app.post("/api/businesses/:id/reactivate", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.put("/api/businesses/:id/notes", (req, res) => {
   try {
     const business = businessStore.setNotes(req.params.id, (req.body || {}).notes);
@@ -176,7 +197,7 @@ app.put("/api/businesses/:id/notes", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.get("/api/businesses/:id/records/:area", (req, res) => {
   try {
     const records = businessStore.getRecords(req.params.id, req.params.area);
@@ -185,7 +206,7 @@ app.get("/api/businesses/:id/records/:area", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.post("/api/businesses/:id/records/:area", (req, res) => {
   try {
     const record = businessStore.addRecord(req.params.id, req.params.area, req.body || {});
@@ -195,7 +216,7 @@ app.post("/api/businesses/:id/records/:area", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.patch("/api/businesses/:id/records/:area/:recordId", (req, res) => {
   try {
     const record = businessStore.updateRecord(req.params.id, req.params.area, req.params.recordId, req.body || {});
@@ -206,46 +227,46 @@ app.patch("/api/businesses/:id/records/:area/:recordId", (req, res) => {
     res.status(400).json({ success: false, error: error.message });
   }
 });
-
+ 
 app.get("/api/businesses/:id/activity", (req, res) => {
   const business = businessStore.getBusiness(req.params.id);
   if (!business) return res.status(404).json({ success: false, error: "Business not found" });
   res.json({ success: true, activity: business.activity || [] });
 });
-
-
+ 
+ 
 // ============================================================
 // BUSINESS OPEN / CLOSED STATUS + SHOP CLOSURES
 // ============================================================
-
+ 
 let businessStatus = {
   isOpen: true,
   closures: [],
   changedAt: "",
   changedBy: "Owner"
 };
-
+ 
 app.get("/business-status", (req, res) => {
   res.json({
     success: true,
     ...businessStatus
   });
 });
-
+ 
 app.post("/business-status", (req, res) => {
   const hasOpenStatus =
     typeof req.body?.isOpen === "boolean";
-
+ 
   const hasClosures =
     Array.isArray(req.body?.closures);
-
+ 
   if (!hasOpenStatus && !hasClosures) {
     return res.status(400).json({
       success: false,
       error: "Send isOpen, closures, or both."
     });
   }
-
+ 
   businessStatus = {
     isOpen: hasOpenStatus
       ? req.body.isOpen
@@ -256,42 +277,42 @@ app.post("/business-status", (req, res) => {
     changedAt: new Date().toISOString(),
     changedBy: "Owner"
   };
-
+ 
   res.json({
     success: true,
     ...businessStatus
   });
 });
-
-
+ 
+ 
 // ============================================================
 // PAGE TEMPLATE
 // ============================================================
-
+ 
 function sendPage(res, title, content) {
-
+ 
   res.type("html").send(`
     <!DOCTYPE html>
-
+ 
     <html lang="en">
-
+ 
     <head>
-
+ 
       <meta charset="UTF-8">
-
+ 
       <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
       >
-
+ 
       <title>${title}</title>
-
+ 
       <style>
-
+ 
         * {
           box-sizing: border-box;
         }
-
+ 
         body {
           font-family: Arial, sans-serif;
           max-width: 820px;
@@ -301,37 +322,37 @@ function sendPage(res, title, content) {
           color: #222;
           background: #fff;
         }
-
+ 
         h1 {
           margin-bottom: 12px;
         }
-
+ 
         h2 {
           margin-top: 32px;
         }
-
+ 
         a {
           color: #174ea6;
         }
-
+ 
         .notice {
           margin: 25px 0;
           padding: 18px;
           border: 1px solid #bbb;
           border-radius: 6px;
         }
-
+ 
         .links {
           margin-top: 35px;
           padding-top: 20px;
           border-top: 1px solid #ddd;
         }
-
+ 
         label {
           display: block;
           margin-top: 18px;
         }
-
+ 
         input,
         select {
           width: 100%;
@@ -340,214 +361,214 @@ function sendPage(res, title, content) {
           margin-top: 6px;
           font-size: 16px;
         }
-
+ 
         .consent-box {
           margin-top: 24px;
           padding: 18px;
           border: 2px solid #555;
           border-radius: 6px;
         }
-
+ 
         .consent-box label {
           display: flex;
           align-items: flex-start;
           gap: 10px;
           margin: 0;
         }
-
+ 
         .consent-box input {
           width: auto;
           margin-top: 6px;
         }
-
+ 
         button {
           margin-top: 24px;
           padding: 12px 20px;
           font-size: 16px;
           cursor: pointer;
         }
-
+ 
         .small {
           font-size: 14px;
         }
-
+ 
       </style>
-
+ 
     </head>
-
+ 
     <body>
-
+ 
       ${content}
-
+ 
     </body>
-
+ 
     </html>
   `);
-
+ 
 }
-
-
+ 
+ 
 // ============================================================
 // BUSINESS PRO SMS HOME
 // ============================================================
-
+ 
 app.get("/", (req, res) => {
-
+ 
   sendPage(
     res,
     "Business Pro SMS",
     `
-
+ 
       <h1>Business Pro SMS</h1>
-
+ 
       <p>
         Business Pro SMS provides appointment booking and
         transactional SMS notification tools for
         appointment-based businesses.
       </p>
-
+ 
       <p>
         Customers who voluntarily opt in may receive
         appointment confirmations, reminders, scheduling
         updates, and cancellation notifications.
       </p>
-
-
+ 
+ 
       <h2>Business Pro SMS Messaging Program</h2>
-
+ 
       <div class="notice">
-
+ 
         <p>
           Customers may receive up to 6 SMS messages per
           appointment, depending on appointment activity.
         </p>
-
+ 
         <p>
           Message and data rates may apply.
         </p>
-
+ 
         <p>
           Reply STOP to opt out.
           Reply HELP for help.
         </p>
-
+ 
         <p>
           SMS consent is voluntary and is not required to
           book an appointment or purchase goods or services.
         </p>
-
+ 
       </div>
-
-
+ 
+ 
       <h2>How Customers Opt In</h2>
-
+ 
       <p>
         Customers enter their mobile phone number during the
         online appointment booking process.
       </p>
-
+ 
       <p>
         Customers who want SMS appointment notifications
         separately check an unchecked SMS consent checkbox.
       </p>
-
+ 
       <p>
         The checkbox is optional.
       </p>
-
-
+ 
+ 
       <div class="links">
-
+ 
         <p>
           <a href="/sms-consent">
             View SMS Opt-In Form
           </a>
         </p>
-
+ 
         <p>
           <a href="/privacy">
             Privacy Policy
           </a>
         </p>
-
+ 
         <p>
           <a href="/terms">
             Terms & Conditions
           </a>
         </p>
-
+ 
       </div>
-
+ 
     `
   );
-
+ 
 });
-
-
+ 
+ 
 // ============================================================
 // PRIVACY POLICY
 // ============================================================
-
+ 
 app.get("/privacy", (req, res) => {
-
+ 
   sendPage(
     res,
     "Privacy Policy | Business Pro SMS",
     `
-
+ 
       <h1>Business Pro SMS Privacy Policy</h1>
-
+ 
       <p>
         This Privacy Policy applies to the Business Pro SMS
         appointment booking and transactional SMS messaging
         program.
       </p>
-
-
+ 
+ 
       <h2>Information We Collect</h2>
-
+ 
       <p>
         Business Pro SMS may collect information voluntarily
         provided by customers when they use the appointment
         booking service.
       </p>
-
+ 
       <p>
         This information may include:
       </p>
-
+ 
       <ul>
-
+ 
         <li>Name</li>
-
+ 
         <li>Mobile phone number</li>
-
+ 
         <li>Appointment date and time</li>
-
+ 
         <li>Appointment service information</li>
-
+ 
         <li>SMS opt-in and consent status</li>
-
+ 
       </ul>
-
-
+ 
+ 
       <h2>How We Use Information</h2>
-
+ 
       <p>
         Customer information is used only as necessary to
         provide appointment booking and appointment-related
         communications requested by the customer.
       </p>
-
+ 
       <p>
         SMS messages may include appointment confirmations,
         reminders, scheduling updates, and cancellation
         notifications.
       </p>
-
-
+ 
+ 
       <h2>Mobile Information and SMS Consent</h2>
-
+ 
       <p>
         <strong>
           Business Pro SMS does not share, sell, rent, or
@@ -556,405 +577,405 @@ app.get("/privacy", (req, res) => {
           for marketing or promotional purposes.
         </strong>
       </p>
-
+ 
       <p>
         Mobile information and SMS consent are used only for
         the Business Pro SMS messaging program for which the
         customer voluntarily opted in.
       </p>
-
+ 
       <p>
         SMS consent is not transferred to another business,
         sender, third party, affiliate, or lead generator for
         marketing or promotional purposes.
       </p>
-
-
+ 
+ 
       <h2>SMS Messaging Disclosures</h2>
-
+ 
       <p>
         Customers may receive up to 6 SMS messages per
         appointment, depending on appointment activity.
       </p>
-
+ 
       <p>
         Message and data rates may apply.
       </p>
-
+ 
       <p>
         Reply STOP to opt out of SMS messages.
       </p>
-
+ 
       <p>
         Reply HELP for help.
       </p>
-
+ 
       <p>
         SMS consent is voluntary and is not required to
         book an appointment or purchase goods or services.
       </p>
-
-
+ 
+ 
       <h2>Customer Choice</h2>
-
+ 
       <p>
         Customers who do not consent to SMS messaging may
         still complete the appointment booking process.
       </p>
-
-
+ 
+ 
       <div class="links">
-
+ 
         <p>
           <a href="/sms-consent">
             SMS Opt-In Form
           </a>
         </p>
-
+ 
         <p>
           <a href="/terms">
             Terms & Conditions
           </a>
         </p>
-
+ 
         <p>
           <a href="/">
             Business Pro SMS Home
           </a>
         </p>
-
+ 
       </div>
-
+ 
     `
   );
-
+ 
 });
-
-
+ 
+ 
 // ============================================================
 // TERMS & CONDITIONS
 // ============================================================
-
+ 
 app.get("/terms", (req, res) => {
-
+ 
   sendPage(
     res,
     "Terms & Conditions | Business Pro SMS",
     `
-
+ 
       <h1>Business Pro SMS Terms & Conditions</h1>
-
+ 
       <p>
         These Terms & Conditions apply to the Business Pro SMS
         transactional appointment messaging program.
       </p>
-
-
+ 
+ 
       <h2>Program Description</h2>
-
+ 
       <p>
         Customers who voluntarily opt in may receive
         appointment-related SMS messages from Business Pro SMS.
       </p>
-
+ 
       <p>
         Messages may include:
       </p>
-
+ 
       <ul>
-
+ 
         <li>Appointment confirmations</li>
-
+ 
         <li>Appointment reminders</li>
-
+ 
         <li>Scheduling updates</li>
-
+ 
         <li>Cancellation notifications</li>
-
+ 
       </ul>
-
-
+ 
+ 
       <h2>SMS Consent</h2>
-
+ 
       <p>
         Customers opt in by voluntarily providing their mobile
         phone number and separately checking an unchecked SMS
         consent checkbox during the online appointment booking
         process.
       </p>
-
+ 
       <p>
         SMS consent is optional.
       </p>
-
+ 
       <p>
         SMS consent is not required to book an appointment or
         purchase goods or services.
       </p>
-
-
+ 
+ 
       <h2>Message Frequency</h2>
-
+ 
       <p>
         Customers may receive up to 6 SMS messages per
         appointment, depending on appointment activity.
       </p>
-
-
+ 
+ 
       <h2>Message and Data Rates</h2>
-
+ 
       <p>
         Message and data rates may apply according to the
         customer's wireless carrier and mobile plan.
       </p>
-
-
+ 
+ 
       <h2>Opt Out</h2>
-
+ 
       <p>
         Reply STOP at any time to opt out of SMS messages.
       </p>
-
-
+ 
+ 
       <h2>Help</h2>
-
+ 
       <p>
         Reply HELP for help.
       </p>
-
-
+ 
+ 
       <h2>Privacy</h2>
-
+ 
       <p>
         Business Pro SMS does not share, sell, rent, or provide
         mobile phone numbers, SMS opt-in data, or messaging
         consent to third parties or affiliates for marketing or
         promotional purposes.
       </p>
-
+ 
       <p>
         Read the full Privacy Policy:
       </p>
-
+ 
       <p>
         <a href="/privacy">
           https://village-barber-sms.onrender.com/privacy
         </a>
       </p>
-
-
+ 
+ 
       <div class="links">
-
+ 
         <p>
           <a href="/sms-consent">
             SMS Opt-In Form
           </a>
         </p>
-
+ 
         <p>
           <a href="/">
             Business Pro SMS Home
           </a>
         </p>
-
+ 
       </div>
-
+ 
     `
   );
-
+ 
 });
-
-
+ 
+ 
 // ============================================================
 // SMS OPT-IN FORM
 // ============================================================
-
+ 
 app.get("/sms-consent", (req, res) => {
-
+ 
   sendPage(
     res,
     "SMS Opt-In | Business Pro SMS",
     `
-
+ 
       <h1>Business Pro SMS Appointment Booking</h1>
-
+ 
       <p>
         This public form demonstrates the SMS consent process
         used with the Business Pro SMS appointment booking
         workflow.
       </p>
-
-
+ 
+ 
       <form
         method="POST"
         action="/sms-consent-demo"
       >
-
+ 
         <label for="customer-name">
           Customer Name
         </label>
-
+ 
         <input
           id="customer-name"
           name="customerName"
           type="text"
           placeholder="Enter your name"
         >
-
-
+ 
+ 
         <label for="mobile-phone">
           Mobile Phone
         </label>
-
+ 
         <input
           id="mobile-phone"
           name="phone"
           type="tel"
           placeholder="(207) 555-0123"
         >
-
-
+ 
+ 
         <label for="appointment-date">
           Appointment Date
         </label>
-
+ 
         <input
           id="appointment-date"
           name="appointmentDate"
           type="date"
         >
-
-
+ 
+ 
         <label for="appointment-time">
           Appointment Time
         </label>
-
+ 
         <input
           id="appointment-time"
           name="appointmentTime"
           type="time"
         >
-
-
+ 
+ 
         <div class="consent-box">
-
+ 
           <label>
-
+ 
             <input
               type="checkbox"
               name="smsConsent"
               value="yes"
             >
-
+ 
             <span>
-
+ 
               By checking this box, I agree to receive
               transactional SMS messages from
               <strong>Business Pro SMS</strong> regarding
               appointment confirmations, reminders, scheduling
               updates, and cancellation notifications.
-
+ 
               I may receive up to 6 SMS messages per appointment,
               depending on appointment activity.
-
+ 
               Message and data rates may apply.
-
+ 
               Reply STOP to opt out.
               Reply HELP for help.
-
+ 
               SMS consent is optional and is not required to
               book an appointment or purchase goods or services.
-
+ 
               <a href="/privacy">
                 Privacy Policy
               </a>
-
+ 
               |
-
+ 
               <a href="/terms">
                 Terms & Conditions
               </a>
-
+ 
             </span>
-
+ 
           </label>
-
+ 
         </div>
-
-
+ 
+ 
         <button type="submit">
           Submit Appointment Form
         </button>
-
+ 
       </form>
-
-
+ 
+ 
       <p class="small">
-
+ 
         The SMS checkbox above is unchecked by default.
         Customers may submit the appointment form without
         selecting SMS notifications.
-
+ 
       </p>
-
-
+ 
+ 
       <div class="links">
-
+ 
         <p>
           <a href="/privacy">
             Privacy Policy
           </a>
         </p>
-
+ 
         <p>
           <a href="/terms">
             Terms & Conditions
           </a>
         </p>
-
+ 
         <p>
           <a href="/">
             Business Pro SMS Home
           </a>
         </p>
-
+ 
       </div>
-
+ 
     `
   );
-
+ 
 });
-
-
+ 
+ 
 // ============================================================
 // DEMONSTRATE OPTIONAL CONSENT
 // ============================================================
-
+ 
 app.post(
   "/sms-consent-demo",
   (req, res) => {
-
+ 
     const selectedSMS =
       req.body.smsConsent === "yes";
-
-
+ 
+ 
     sendPage(
       res,
       "Appointment Form Submitted | Business Pro SMS",
       `
-
+ 
         <h1>Appointment Form Submitted</h1>
-
+ 
         <p>
           This page demonstrates that appointment booking can
           be completed whether or not SMS consent is selected.
         </p>
-
-
+ 
+ 
         <div class="notice">
-
+ 
           <strong>SMS Notification Selection:</strong>
-
+ 
           <p>
             ${
               selectedSMS
@@ -962,101 +983,101 @@ app.post(
                 : "SMS notifications were not selected. The appointment form was still accepted."
             }
           </p>
-
+ 
         </div>
-
-
+ 
+ 
         <p>
           <a href="/sms-consent">
             Return to SMS Opt-In Form
           </a>
         </p>
-
+ 
         <p>
           <a href="/privacy">
             Privacy Policy
           </a>
         </p>
-
+ 
         <p>
           <a href="/terms">
             Terms & Conditions
           </a>
         </p>
-
+ 
       `
     );
-
+ 
   }
 );
-
-
+ 
+ 
 // ============================================================
 // APPOINTMENT PAYMENT + NOTIFICATIONS
 // ============================================================
-
+ 
 function normalizePhone(phone) {
-
+ 
   let digits =
     String(phone || "")
       .replace(/\D/g, "");
-
+ 
   if (digits.length === 10) {
     digits = "1" + digits;
   }
-
+ 
   return digits;
-
+ 
 }
-
-
+ 
+ 
 function cleanAppointmentValue(
   value,
   maxLength = 300
 ) {
-
+ 
   return String(value || "")
     .trim()
     .slice(0, maxLength);
-
+ 
 }
-
-
+ 
+ 
 function getStripeTestClient() {
-
+ 
   const key =
     process.env.STRIPE_TEST_SECRET_KEY ||
     process.env.STRIPE_SECRET_KEY ||
     "";
-
+ 
   if (
     !key ||
     !key.startsWith("sk_test_")
   ) {
-
+ 
     throw new Error(
       "Stripe appointment testing requires a Stripe test secret key."
     );
-
+ 
   }
-
+ 
   return new Stripe(key);
-
+ 
 }
-
-
+ 
+ 
 function getRequestBaseUrl(req) {
-
+ 
   const configured =
     String(
       process.env.PUBLIC_BASE_URL ||
       ""
     ).trim();
-
+ 
   if (configured) {
     return configured.replace(/\/$/, "");
   }
-
+ 
   const forwardedProto =
     String(
       req.headers["x-forwarded-proto"] ||
@@ -1064,22 +1085,22 @@ function getRequestBaseUrl(req) {
     )
       .split(",")[0]
       .trim();
-
+ 
   const protocol =
     forwardedProto ||
     req.protocol ||
     "https";
-
+ 
   return `${protocol}://${req.get("host")}`;
-
+ 
 }
-
-
+ 
+ 
 async function sendTwilioMessage(
   phone,
   messageBody
 ) {
-
+ 
   const {
     TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN,
@@ -1087,7 +1108,7 @@ async function sendTwilioMessage(
     TWILIO_PHONE_NUMBER,
     TWILIO_FROM_NUMBER
   } = process.env;
-
+ 
   if (
     !TWILIO_ACCOUNT_SID ||
     !TWILIO_AUTH_TOKEN
@@ -1096,63 +1117,63 @@ async function sendTwilioMessage(
       "Twilio SMS configuration is incomplete."
     );
   }
-
+ 
   const requestedPhone =
     normalizePhone(phone);
-
+ 
   if (!requestedPhone) {
     throw new Error(
       "A valid customer phone number is required."
     );
   }
-
+ 
   const twilioURL =
     `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-
+ 
   const authorization =
     Buffer.from(
       `${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`
     ).toString("base64");
-
+ 
   const formData =
     new URLSearchParams();
-
+ 
   formData.append(
     "To",
     `+${requestedPhone}`
   );
-
+ 
   formData.append(
     "Body",
     messageBody
   );
-
+ 
   if (TWILIO_MESSAGING_SERVICE_SID) {
-
+ 
     formData.append(
       "MessagingServiceSid",
       TWILIO_MESSAGING_SERVICE_SID
     );
-
+ 
   } else {
-
+ 
     const senderNumber =
       TWILIO_PHONE_NUMBER ||
       TWILIO_FROM_NUMBER;
-
+ 
     if (!senderNumber) {
       throw new Error(
         "A Twilio sender number or Messaging Service SID has not been configured."
       );
     }
-
+ 
     formData.append(
       "From",
       senderNumber
     );
-
+ 
   }
-
+ 
   const twilioResponse =
     await fetch(
       twilioURL,
@@ -1168,35 +1189,35 @@ async function sendTwilioMessage(
           formData.toString()
       }
     );
-
+ 
   const result =
     await twilioResponse.json();
-
+ 
   if (!twilioResponse.ok) {
-
+ 
     console.error(
       "Twilio SMS error:",
       result
     );
-
+ 
     throw new Error(
       result.message ||
       "Twilio rejected the SMS request."
     );
-
+ 
   }
-
+ 
   return result;
-
+ 
 }
-
-
+ 
+ 
 async function sendAppointmentEmail(
   appointment,
   sessionId,
   manageUrl
 ) {
-
+ 
   const {
     RESEND_API_KEY,
     APPOINTMENT_NOTIFICATION_EMAIL,
@@ -1207,7 +1228,7 @@ async function sendAppointmentEmail(
     RESEND_TO_EMAIL,
     RESEND_FROM_EMAIL
   } = process.env;
-
+ 
   const destination =
     APPOINTMENT_NOTIFICATION_EMAIL ||
     OWNER_NOTIFICATION_EMAIL ||
@@ -1216,7 +1237,7 @@ async function sendAppointmentEmail(
     SIGNUP_NOTIFICATION_EMAIL ||
     RESEND_TO_EMAIL ||
     "";
-
+ 
   if (
     !RESEND_API_KEY ||
     !destination
@@ -1225,7 +1246,7 @@ async function sendAppointmentEmail(
       "Appointment email configuration is incomplete."
     );
   }
-
+ 
   const paymentLine =
     appointment.paymentChoice === "pay_at_store"
       ? "Payment: Pay at store"
@@ -1233,7 +1254,7 @@ async function sendAppointmentEmail(
           Number(appointment.amountPaidCents || 0) /
           100
         ).toFixed(2)}`;
-
+ 
   const lines = [
     `Shop: ${appointment.shopName}`,
     `Customer: ${appointment.customerName}`,
@@ -1246,7 +1267,7 @@ async function sendAppointmentEmail(
     `Manage appointment: ${manageUrl}`,
     `Stripe test session: ${sessionId}`
   ];
-
+ 
   const resendResponse =
     await fetch(
       "https://api.resend.com/emails",
@@ -1273,35 +1294,35 @@ async function sendAppointmentEmail(
           })
       }
     );
-
+ 
   const result =
     await resendResponse.json();
-
+ 
   if (!resendResponse.ok) {
-
+ 
     console.error(
       "Resend appointment email error:",
       result
     );
-
+ 
     throw new Error(
       result.message ||
       "Resend rejected the appointment email."
     );
-
+ 
   }
-
+ 
   return result;
-
+ 
 }
-
-
+ 
+ 
 async function sendAppointmentCancellationEmail(
   appointment,
   sessionId,
   reason
 ) {
-
+ 
   const {
     RESEND_API_KEY,
     APPOINTMENT_NOTIFICATION_EMAIL,
@@ -1312,7 +1333,7 @@ async function sendAppointmentCancellationEmail(
     RESEND_TO_EMAIL,
     RESEND_FROM_EMAIL
   } = process.env;
-
+ 
   const destination =
     APPOINTMENT_NOTIFICATION_EMAIL ||
     OWNER_NOTIFICATION_EMAIL ||
@@ -1321,13 +1342,13 @@ async function sendAppointmentCancellationEmail(
     SIGNUP_NOTIFICATION_EMAIL ||
     RESEND_TO_EMAIL ||
     "";
-
+ 
   if (!RESEND_API_KEY || !destination) {
     throw new Error(
       "Appointment email configuration is incomplete."
     );
   }
-
+ 
   const lines = [
     `Shop: ${appointment.shopName}`,
     `Customer: ${appointment.customerName}`,
@@ -1339,7 +1360,7 @@ async function sendAppointmentCancellationEmail(
     `Status: ${reason}`,
     `Stripe test session: ${sessionId}`
   ];
-
+ 
   const resendResponse = await fetch(
     "https://api.resend.com/emails",
     {
@@ -1360,9 +1381,9 @@ async function sendAppointmentCancellationEmail(
       })
     }
   );
-
+ 
   const result = await resendResponse.json();
-
+ 
   if (!resendResponse.ok) {
     console.error(
       "Resend cancellation email error:",
@@ -1373,17 +1394,17 @@ async function sendAppointmentCancellationEmail(
       "Resend rejected the cancellation email."
     );
   }
-
+ 
   return result;
-
+ 
 }
-
-
+ 
+ 
 function appointmentFromSession(session) {
-
+ 
   const metadata =
     session.metadata || {};
-
+ 
   return {
     shopName:
       metadata.shopName ||
@@ -1418,50 +1439,50 @@ function appointmentFromSession(session) {
     amountPaidCents:
       Number(metadata.amountPaidCents || 0)
   };
-
+ 
 }
-
-
+ 
+ 
 function getAppointmentManageSecret() {
-
+ 
   return String(
     process.env.APPOINTMENT_MANAGE_SECRET ||
     process.env.STRIPE_TEST_SECRET_KEY ||
     process.env.STRIPE_SECRET_KEY ||
     ""
   );
-
+ 
 }
-
-
+ 
+ 
 function createAppointmentManageToken(
   sessionId
 ) {
-
+ 
   const secret =
     getAppointmentManageSecret();
-
+ 
   if (!secret) {
     throw new Error(
       "Appointment management secret is not configured."
     );
   }
-
+ 
   return crypto
     .createHmac("sha256", secret)
     .update(String(sessionId || ""))
     .digest("hex");
-
+ 
 }
-
-
+ 
+ 
 function appointmentManageTokenIsValid(
   sessionId,
   token
 ) {
-
+ 
   try {
-
+ 
     const expected =
       Buffer.from(
         createAppointmentManageToken(
@@ -1469,13 +1490,13 @@ function appointmentManageTokenIsValid(
         ),
         "utf8"
       );
-
+ 
     const actual =
       Buffer.from(
         String(token || ""),
         "utf8"
       );
-
+ 
     return (
       expected.length === actual.length &&
       crypto.timingSafeEqual(
@@ -1483,41 +1504,41 @@ function appointmentManageTokenIsValid(
         actual
       )
     );
-
+ 
   } catch {
     return false;
   }
-
+ 
 }
-
-
+ 
+ 
 function getAppointmentManageUrl(
   req,
   sessionId
 ) {
-
+ 
   const baseUrl =
     getRequestBaseUrl(req);
-
+ 
   const token =
     createAppointmentManageToken(
       sessionId
     );
-
+ 
   return (
     `${baseUrl}/manage-appointment` +
     `?session_id=${encodeURIComponent(sessionId)}` +
     `&token=${encodeURIComponent(token)}`
   );
-
+ 
 }
-
-
+ 
+ 
 async function getCompletedSetupSession(
   stripe,
   sessionId
 ) {
-
+ 
   if (
     !sessionId ||
     !String(sessionId).startsWith("cs_test_")
@@ -1526,7 +1547,7 @@ async function getCompletedSetupSession(
       "Invalid test checkout session."
     );
   }
-
+ 
   const session =
     await stripe.checkout.sessions.retrieve(
       sessionId,
@@ -1536,7 +1557,7 @@ async function getCompletedSetupSession(
         ]
       }
     );
-
+ 
   if (
     session.mode !== "setup" ||
     session.status !== "complete"
@@ -1545,10 +1566,10 @@ async function getCompletedSetupSession(
       "Card setup is not complete yet."
     );
   }
-
+ 
   const setupIntent =
     session.setup_intent;
-
+ 
   if (
     !setupIntent ||
     setupIntent.status !== "succeeded" ||
@@ -1558,21 +1579,21 @@ async function getCompletedSetupSession(
       "The saved card is not ready yet."
     );
   }
-
+ 
   return session;
-
+ 
 }
-
-
+ 
+ 
 async function sendFinalizedAppointmentNotifications(
   req,
   stripe,
   session
 ) {
-
+ 
   const metadata =
     session.metadata || {};
-
+ 
   if (
     metadata.appointmentStatus !==
     "confirmed"
@@ -1585,92 +1606,92 @@ async function sendFinalizedAppointmentNotifications(
       emailError: ""
     };
   }
-
+ 
   const appointment =
     appointmentFromSession(session);
-
+ 
   const manageUrl =
     getAppointmentManageUrl(
       req,
       session.id
     );
-
+ 
   let smsSent =
     metadata.appointmentSmsSent ===
     "yes";
-
+ 
   let emailSent =
     metadata.appointmentEmailSent ===
     "yes";
-
+ 
   let smsError = "";
   let emailError = "";
-
+ 
   if (
     appointment.smsConsent &&
     !smsSent
   ) {
-
+ 
     try {
-
+ 
       const paymentText =
         appointment.paymentChoice ===
         "pay_at_store"
           ? "Pay at store."
           : "Payment received.";
-
+ 
       const messageBody =
         `${appointment.shopName}: Your appointment with ${appointment.barberName} is confirmed for ${appointment.appointmentDate} at ${appointment.appointmentTime}. ${paymentText} Cancel or reschedule: ${manageUrl} Reply STOP to opt out.`;
-
+ 
       await sendTwilioMessage(
         appointment.phone,
         messageBody
       );
-
+ 
       smsSent = true;
-
+ 
     } catch (error) {
-
+ 
       smsError =
         error.message ||
         "The confirmation text could not be sent.";
-
+ 
       console.error(
         "Appointment SMS error:",
         error
       );
-
+ 
     }
-
+ 
   }
-
+ 
   if (!emailSent) {
-
+ 
     try {
-
+ 
       await sendAppointmentEmail(
         appointment,
         session.id,
         manageUrl
       );
-
+ 
       emailSent = true;
-
+ 
     } catch (error) {
-
+ 
       emailError =
         error.message ||
         "The owner/barber email could not be sent.";
-
+ 
       console.error(
         "Appointment email error:",
         error
       );
-
+ 
     }
-
+ 
   }
-
+ 
   await stripe.checkout.sessions.update(
     session.id,
     {
@@ -1685,7 +1706,7 @@ async function sendFinalizedAppointmentNotifications(
       }
     }
   );
-
+ 
   return {
     smsRequested:
       appointment.smsConsent,
@@ -1695,16 +1716,16 @@ async function sendFinalizedAppointmentNotifications(
     emailError,
     manageUrl
   };
-
+ 
 }
-
-
+ 
+ 
 app.post(
   "/send-confirmation",
   async (req, res) => {
-
+ 
     try {
-
+ 
       const appointmentDate =
         cleanAppointmentValue(
           req.body.date ||
@@ -1712,7 +1733,7 @@ app.post(
           "[date]",
           60
         );
-
+ 
       const appointmentTime =
         cleanAppointmentValue(
           req.body.time ||
@@ -1720,7 +1741,7 @@ app.post(
           "[time]",
           60
         );
-
+ 
       const shopName =
         cleanAppointmentValue(
           req.body.shopName ||
@@ -1728,7 +1749,7 @@ app.post(
           160
         ) ||
         "The Village Barber";
-
+ 
       const barberName =
         cleanAppointmentValue(
           req.body.barber ||
@@ -1736,57 +1757,57 @@ app.post(
           "",
           160
         );
-
+ 
       const phone =
         cleanAppointmentValue(
           req.body.phone,
           50
         );
-
+ 
       const messageBody =
         `${shopName}: Your appointment${barberName ? ` with ${barberName}` : ""} is confirmed for ${appointmentDate} at ${appointmentTime}. Reply STOP to opt out.`;
-
+ 
       const result =
         await sendTwilioMessage(
           phone,
           messageBody
         );
-
+ 
       return res.json({
         success: true,
         messageSid: result.sid
       });
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "SMS confirmation error:",
         error
       );
-
+ 
       return res.status(500).json({
         success: false,
         error:
           error.message ||
           "The confirmation text could not be sent."
       });
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.get(
   "/appointment-launch",
   (req, res) => {
-
+ 
     const bookingId =
       cleanAppointmentValue(
         req.query.booking_id,
         120
       );
-
+ 
     if (!bookingId) {
       return sendPage(
         res,
@@ -1797,10 +1818,10 @@ app.get(
         `
       );
     }
-
+ 
     const safeBookingId =
       JSON.stringify(bookingId);
-
+ 
     sendPage(
       res,
       "Opening Secure Payment | Business Pro",
@@ -1816,7 +1837,7 @@ app.get(
             text-align: center;
             background: #f8fafc;
           }
-
+ 
           .launch-card {
             width: min(90vw, 430px);
             padding: 34px 26px;
@@ -1824,51 +1845,51 @@ app.get(
             border-radius: 20px;
             box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
           }
-
+ 
           .launch-card h1 {
             margin: 0 0 12px;
             font-size: 24px;
           }
-
+ 
           .launch-card p {
             margin: 0;
             color: #475569;
           }
         </style>
-
+ 
         <div class="launch-card">
           <h1>Opening Secure Payment</h1>
           <p id="launch-message">Please wait a moment...</p>
         </div>
-
+ 
         <script>
           (() => {
-
+ 
             const bookingId =
               ${safeBookingId};
-
+ 
             const message =
               document.getElementById(
                 "launch-message"
               );
-
+ 
             const startedAt =
               Date.now();
-
+ 
             async function checkLaunch() {
-
+ 
               try {
-
+ 
                 const response =
                   await fetch(
                     "/appointment-launch-status?booking_id=" +
                     encodeURIComponent(bookingId),
                     { cache: "no-store" }
                   );
-
+ 
                 const result =
                   await response.json();
-
+ 
                 if (
                   response.ok &&
                   result.success &&
@@ -1880,14 +1901,14 @@ app.get(
                   );
                   return;
                 }
-
+ 
               } catch (error) {
                 console.error(
                   "Appointment launch check error:",
                   error
                 );
               }
-
+ 
               if (
                 Date.now() - startedAt >
                 30000
@@ -1896,35 +1917,35 @@ app.get(
                   "The secure payment page did not open. Return to the appointment page and try again.";
                 return;
               }
-
+ 
               setTimeout(
                 checkLaunch,
                 400
               );
-
+ 
             }
-
+ 
             checkLaunch();
-
+ 
           })();
         </script>
       `
     );
-
+ 
   }
 );
-
-
+ 
+ 
 app.get(
   "/appointment-launch-status",
   (req, res) => {
-
+ 
     const bookingId =
       cleanAppointmentValue(
         req.query.booking_id,
         120
       );
-
+ 
     if (!bookingId) {
       return res.status(400).json({
         success: false,
@@ -1933,12 +1954,12 @@ app.get(
           "The appointment reference is missing."
       });
     }
-
+ 
     const launch =
       getAppointmentCheckoutLaunch(
         bookingId
       );
-
+ 
     return res.json({
       success: true,
       ready: Boolean(launch),
@@ -1947,90 +1968,90 @@ app.get(
       url:
         launch?.url || ""
     });
-
+ 
   }
 );
-
-
+ 
+ 
 app.post(
   "/create-appointment-checkout-session",
   async (req, res) => {
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       const bookingId =
         cleanAppointmentValue(
           req.body.bookingId,
           120
         );
-
+ 
       const shopName =
         cleanAppointmentValue(
           req.body.shopName,
           160
         ) || "Barber Shop";
-
+ 
       const barberName =
         cleanAppointmentValue(
           req.body.barberName,
           160
         ) || "Barber";
-
+ 
       const serviceName =
         cleanAppointmentValue(
           req.body.serviceName,
           160
         ) || "Appointment";
-
+ 
       const customerName =
         cleanAppointmentValue(
           req.body.customerName,
           160
         ) || "Customer";
-
+ 
       const phone =
         cleanAppointmentValue(
           req.body.phone,
           50
         );
-
+ 
       const appointmentDate =
         cleanAppointmentValue(
           req.body.appointmentDate,
           60
         );
-
+ 
       const appointmentTime =
         cleanAppointmentValue(
           req.body.appointmentTime,
           60
         );
-
+ 
       const appointmentTime24 =
         cleanAppointmentValue(
           req.body.appointmentTime24,
           30
         );
-
+ 
       const smsConsent =
         req.body.smsConsent
           ? "yes"
           : "no";
-
+ 
       const servicePrice =
         Number(
           req.body.servicePrice ||
           0
         );
-
+ 
       const amountCents =
         Math.round(
           servicePrice * 100
         );
-
+ 
       if (
         !bookingId ||
         !phone ||
@@ -2043,7 +2064,7 @@ app.post(
             "Appointment checkout is missing required booking information."
         });
       }
-
+ 
       if (
         !Number.isFinite(amountCents) ||
         amountCents < 50 ||
@@ -2055,10 +2076,10 @@ app.post(
             "The appointment price is not valid for test checkout."
         });
       }
-
+ 
       const baseUrl =
         getRequestBaseUrl(req);
-
+ 
       const metadata = {
         paymentType:
           "appointment-card-choice-test",
@@ -2079,7 +2100,7 @@ app.post(
         paymentChoice:
           ""
       };
-
+ 
       const customer =
         await stripe.customers.create({
           name: customerName,
@@ -2090,7 +2111,7 @@ app.post(
               "Business Pro barber appointment test"
           }
         });
-
+ 
       const session =
         await stripe.checkout.sessions.create({
           mode: "setup",
@@ -2110,53 +2131,53 @@ app.post(
           cancel_url:
             `${baseUrl}/appointment-payment-cancelled`
         });
-
+ 
       rememberAppointmentCheckoutLaunch(
         bookingId,
         session
       );
-
+ 
       return res.json({
         success: true,
         url: session.url,
         sessionId: session.id
       });
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Appointment Stripe card setup error:",
         error
       );
-
+ 
       return res.status(500).json({
         success: false,
         error:
           error.message ||
           "The secure card page could not be created."
       });
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.get(
   "/appointment-checkout-status",
   async (req, res) => {
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       const sessionId =
         cleanAppointmentValue(
           req.query.session_id,
           200
         );
-
+ 
       if (
         !sessionId ||
         !sessionId.startsWith("cs_test_")
@@ -2167,19 +2188,19 @@ app.get(
             "Invalid test checkout session."
         });
       }
-
+ 
       const session =
         await stripe.checkout.sessions.retrieve(
           sessionId
         );
-
+ 
       const metadata =
         session.metadata || {};
-
+ 
       const confirmed =
         metadata.appointmentStatus ===
         "confirmed";
-
+ 
       return res.json({
         success: true,
         status:
@@ -2214,42 +2235,42 @@ app.get(
               )
             : ""
       });
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Appointment status error:",
         error
       );
-
+ 
       return res.status(500).json({
         success: false,
         error:
           error.message ||
           "The appointment status could not be checked."
       });
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.post(
   "/send-paid-appointment-notifications",
   async (req, res) => {
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       const sessionId =
         cleanAppointmentValue(
           req.body.sessionId,
           200
         );
-
+ 
       if (
         !sessionId ||
         !sessionId.startsWith("cs_test_")
@@ -2260,12 +2281,12 @@ app.post(
             "Invalid test checkout session."
         });
       }
-
+ 
       const session =
         await stripe.checkout.sessions.retrieve(
           sessionId
         );
-
+ 
       if (
         session.metadata?.appointmentStatus !==
         "confirmed"
@@ -2276,74 +2297,74 @@ app.post(
             "The appointment has not been confirmed yet."
         });
       }
-
+ 
       const result =
         await sendFinalizedAppointmentNotifications(
           req,
           stripe,
           session
         );
-
+ 
       return res.json({
         success: true,
         ...result
       });
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Appointment notification error:",
         error
       );
-
+ 
       return res.status(500).json({
         success: false,
         error:
           error.message ||
           "Appointment notifications could not be processed."
       });
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.get(
   "/appointment-payment-choice",
   async (req, res) => {
-
+ 
     const sessionId =
       cleanAppointmentValue(
         req.query.session_id,
         200
       );
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       const session =
         await getCompletedSetupSession(
           stripe,
           sessionId
         );
-
+ 
       const appointment =
         appointmentFromSession(session);
-
+ 
       if (
         session.metadata?.appointmentStatus ===
         "confirmed"
       ) {
-
+ 
         const manageUrl =
           getAppointmentManageUrl(
             req,
             session.id
           );
-
+ 
         return sendPage(
           res,
           "Appointment Confirmed | Business Pro",
@@ -2354,15 +2375,15 @@ app.get(
             <p>Return to the appointment window.</p>
           `
         );
-
+ 
       }
-
+ 
       const amount =
         `$${(
           Number(appointment.amountCents || 0) /
           100
         ).toFixed(2)}`;
-
+ 
       sendPage(
         res,
         "Choose Payment | Business Pro",
@@ -2378,7 +2399,7 @@ app.get(
               justify-content: center;
               background: rgba(15, 23, 42, 0.72);
             }
-
+ 
             .payment-choice-card {
               width: min(92vw, 420px);
               padding: 34px 28px 30px;
@@ -2387,7 +2408,7 @@ app.get(
               box-shadow: 0 22px 60px rgba(0, 0, 0, 0.28);
               text-align: center;
             }
-
+ 
             .payment-choice-card h1 {
               margin: 0 0 26px;
               font-size: 26px;
@@ -2395,15 +2416,15 @@ app.get(
               font-weight: 700;
               color: #111827;
             }
-
+ 
             .payment-choice-card form {
               margin: 0;
             }
-
+ 
             .payment-choice-card form + form {
               margin-top: 14px;
             }
-
+ 
             .payment-choice-card button {
               width: 100%;
               min-height: 54px;
@@ -2417,17 +2438,17 @@ app.get(
               cursor: pointer;
               transition: transform 0.15s ease, box-shadow 0.15s ease;
             }
-
+ 
             .payment-choice-card button:hover {
               transform: translateY(-1px);
             }
-
+ 
             .payment-choice-card .pay-now {
               background: #111827;
               color: #ffffff;
               box-shadow: 0 8px 18px rgba(17, 24, 39, 0.18);
             }
-
+ 
             .payment-choice-card .pay-store {
               background: #f3f4f6;
               color: #111827;
@@ -2437,23 +2458,23 @@ app.get(
             body {
               background: rgba(0, 0, 0, 0.88);
             }
-
+ 
             .payment-choice-card {
               background: #0b0b0b;
               border: 2px solid #d4af37;
               box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
             }
-
+ 
             .payment-choice-card h1 {
               color: #d4af37;
             }
-
+ 
             .payment-choice-card .pay-now {
               background: #d4af37;
               color: #0b0b0b;
               border: 1px solid #d4af37;
             }
-
+ 
             .payment-choice-card .pay-store {
               background: #111111;
               color: #d4af37;
@@ -2463,27 +2484,27 @@ app.get(
               body {
                 padding: 16px;
               }
-
+ 
               .payment-choice-card {
                 width: 100%;
                 padding: 30px 20px 24px;
                 border-radius: 20px;
               }
-
+ 
               .payment-choice-card h1 {
                 font-size: 24px;
               }
             }
           </style>
-
+ 
           <div class="payment-choice-card">
             <h1>Choose Payment</h1>
-
+ 
             <form method="POST" action="/appointment-choice/pay-now">
               <input type="hidden" name="sessionId" value="${session.id}">
               <button class="pay-now" type="submit">PAY NOW</button>
             </form>
-
+ 
             <form method="POST" action="/appointment-choice/pay-at-store">
               <input type="hidden" name="sessionId" value="${session.id}">
               <button class="pay-store" type="submit">PAY AT STORE</button>
@@ -2491,14 +2512,14 @@ app.get(
           </div>
         `
       );
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Payment choice page error:",
         error
       );
-
+ 
       sendPage(
         res,
         "Payment Choice Unavailable | Business Pro",
@@ -2507,37 +2528,37 @@ app.get(
           <p>${cleanAppointmentValue(error.message, 300)}</p>
         `
       );
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.post(
   "/appointment-choice/pay-now",
   async (req, res) => {
-
+ 
     const sessionId =
       cleanAppointmentValue(
         req.body.sessionId,
         200
       );
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       let session =
         await getCompletedSetupSession(
           stripe,
           sessionId
         );
-
+ 
       const metadata =
         session.metadata || {};
-
+ 
       if (
         metadata.appointmentStatus ===
         "confirmed"
@@ -2546,16 +2567,16 @@ app.post(
           `/appointment-payment-choice?session_id=${encodeURIComponent(session.id)}`
         );
       }
-
+ 
       const setupIntent =
         session.setup_intent;
-
+ 
       const amountCents =
         Number(
           metadata.amountCents ||
           0
         );
-
+ 
       if (
         !Number.isFinite(amountCents) ||
         amountCents < 50
@@ -2564,7 +2585,7 @@ app.post(
           "The appointment amount is invalid."
         );
       }
-
+ 
       const paymentIntent =
         await stripe.paymentIntents.create(
           {
@@ -2595,7 +2616,7 @@ app.post(
               `appointment-pay-now-${session.id}`
           }
         );
-
+ 
       if (
         paymentIntent.status !==
         "succeeded"
@@ -2604,7 +2625,7 @@ app.post(
           `Payment did not complete. Stripe status: ${paymentIntent.status}`
         );
       }
-
+ 
       const finalMetadata = {
         ...metadata,
         appointmentStatus:
@@ -2621,7 +2642,7 @@ app.post(
         confirmedAt:
           new Date().toISOString()
       };
-
+ 
       const notifications =
         await sendFinalizedAppointmentNotifications(
           req,
@@ -2632,7 +2653,7 @@ app.post(
               finalMetadata
           }
         );
-
+ 
             sendPage(
         res,
         "Appointment Confirmed | Business Pro",
@@ -2648,7 +2669,7 @@ app.post(
               justify-content: center;
               background: rgba(0, 0, 0, 0.88);
             }
-
+ 
             .business-pro-confirmed-card {
               width: min(92vw, 430px);
               padding: 36px 28px 30px;
@@ -2659,7 +2680,7 @@ app.post(
               text-align: center;
               color: #ffffff;
             }
-
+ 
             .success-check {
               width: 62px;
               height: 62px;
@@ -2673,25 +2694,25 @@ app.post(
               font-size: 34px;
               font-weight: 700;
             }
-
+ 
             .business-pro-confirmed-card h1 {
               margin: 0 0 12px;
               color: #d4af37;
               font-size: 28px;
             }
-
+ 
             .payment-label {
               margin: 0;
               font-size: 18px;
               color: #ffffff;
             }
-
+ 
             .confirmation-actions {
               display: grid;
               gap: 12px;
               margin-top: 28px;
             }
-
+ 
             .confirmation-actions a,
             .confirmation-actions button {
               width: 100%;
@@ -2703,7 +2724,7 @@ app.post(
               font-weight: 700;
               cursor: pointer;
             }
-
+ 
             .manage-appointment-button {
               display: flex;
               align-items: center;
@@ -2713,37 +2734,37 @@ app.post(
               text-decoration: none;
               border: 1px solid #d4af37;
             }
-
+ 
             .close-confirmation-button {
               background: #111111;
               color: #d4af37;
               border: 1px solid #d4af37;
             }
           </style>
-
+ 
           <div class="business-pro-confirmed-card">
-
+ 
             <div class="success-check">
               ✓
             </div>
-
+ 
             <h1>
               Appointment Confirmed
             </h1>
-
+ 
             <p class="payment-label">
               Paid Online
             </p>
-
+ 
             <div class="confirmation-actions">
-
+ 
               <a
                 class="manage-appointment-button"
                 href="${notifications.manageUrl}"
               >
                 Cancel or Reschedule
               </a>
-
+ 
               <button
                 class="close-confirmation-button"
                 type="button"
@@ -2751,20 +2772,20 @@ app.post(
               >
                 Close
               </button>
-
+ 
             </div>
-
+ 
           </div>
         `
       );
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Pay-now appointment error:",
         error
       );
-
+ 
       sendPage(
         res,
         "Payment Failed | Business Pro",
@@ -2774,37 +2795,37 @@ app.post(
           <p>Return to the appointment window and try again.</p>
         `
       );
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.post(
   "/appointment-choice/pay-at-store",
   async (req, res) => {
-
+ 
     const sessionId =
       cleanAppointmentValue(
         req.body.sessionId,
         200
       );
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       let session =
         await getCompletedSetupSession(
           stripe,
           sessionId
         );
-
+ 
       const metadata =
         session.metadata || {};
-
+ 
       const finalMetadata = {
         ...metadata,
         appointmentStatus:
@@ -2817,7 +2838,7 @@ app.post(
           metadata.confirmedAt ||
           new Date().toISOString()
       };
-
+ 
       const notifications =
         await sendFinalizedAppointmentNotifications(
           req,
@@ -2828,7 +2849,7 @@ app.post(
               finalMetadata
           }
         );
-
+ 
            sendPage(
         res,
         "Appointment Confirmed | Business Pro",
@@ -2844,7 +2865,7 @@ app.post(
               justify-content: center;
               background: rgba(0, 0, 0, 0.88);
             }
-
+ 
             .business-pro-confirmed-card {
               width: min(92vw, 430px);
               padding: 36px 28px 30px;
@@ -2855,7 +2876,7 @@ app.post(
               text-align: center;
               color: #ffffff;
             }
-
+ 
             .success-check {
               width: 62px;
               height: 62px;
@@ -2869,25 +2890,25 @@ app.post(
               font-size: 34px;
               font-weight: 700;
             }
-
+ 
             .business-pro-confirmed-card h1 {
               margin: 0 0 12px;
               color: #d4af37;
               font-size: 28px;
             }
-
+ 
             .payment-label {
               margin: 0;
               font-size: 18px;
               color: #ffffff;
             }
-
+ 
             .confirmation-actions {
               display: grid;
               gap: 12px;
               margin-top: 28px;
             }
-
+ 
             .confirmation-actions a,
             .confirmation-actions button {
               width: 100%;
@@ -2899,7 +2920,7 @@ app.post(
               font-weight: 700;
               cursor: pointer;
             }
-
+ 
             .manage-appointment-button {
               display: flex;
               align-items: center;
@@ -2909,33 +2930,33 @@ app.post(
               text-decoration: none;
               border: 1px solid #d4af37;
             }
-
+ 
             .close-confirmation-button {
               background: #111111;
               color: #d4af37;
               border: 1px solid #d4af37;
             }
           </style>
-
+ 
           <div class="business-pro-confirmed-card">
-
+ 
             <div class="success-check">✓</div>
-
+ 
             <h1>Appointment Confirmed</h1>
-
+ 
             <p class="payment-label">
               Pay at Store
             </p>
-
+ 
             <div class="confirmation-actions">
-
+ 
               <a
                 class="manage-appointment-button"
                 href="${notifications.manageUrl}"
               >
                 Cancel or Reschedule
               </a>
-
+ 
               <button
                 class="close-confirmation-button"
                 type="button"
@@ -2943,20 +2964,20 @@ app.post(
               >
                 Close
               </button>
-
+ 
             </div>
-
+ 
           </div>
         `
       );
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Pay-at-store appointment error:",
         error
       );
-
+ 
       sendPage(
         res,
         "Appointment Could Not Be Confirmed | Business Pro",
@@ -2966,29 +2987,29 @@ app.post(
           <p>Return to the appointment window and try again.</p>
         `
       );
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.get(
   "/manage-appointment",
   async (req, res) => {
-
+ 
     const sessionId =
       cleanAppointmentValue(
         req.query.session_id,
         200
       );
-
+ 
     const token =
       cleanAppointmentValue(
         req.query.token,
         200
       );
-
+ 
     if (
       !appointmentManageTokenIsValid(
         sessionId,
@@ -2999,24 +3020,24 @@ app.get(
         "Invalid appointment management link."
       );
     }
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       const session =
         await stripe.checkout.sessions.retrieve(
           sessionId
         );
-
+ 
       const appointment =
         appointmentFromSession(session);
-
+ 
       const status =
         session.metadata?.appointmentStatus ||
         "";
-
+ 
       if (status === "canceled") {
         return sendPage(
           res,
@@ -3027,7 +3048,7 @@ app.get(
           `
         );
       }
-
+ 
       sendPage(
         res,
         "Manage Appointment | Business Pro",
@@ -3038,56 +3059,56 @@ app.get(
             <p>${appointment.serviceName} with ${appointment.barberName}</p>
             <p>${appointment.appointmentDate} at ${appointment.appointmentTime}</p>
           </div>
-
+ 
           <form method="POST" action="/appointment-manage/cancel">
             <input type="hidden" name="sessionId" value="${session.id}">
             <input type="hidden" name="token" value="${token}">
             <button type="submit">CANCEL APPOINTMENT</button>
           </form>
-
+ 
           <form method="POST" action="/appointment-manage/reschedule">
             <input type="hidden" name="sessionId" value="${session.id}">
             <input type="hidden" name="token" value="${token}">
             <button type="submit">RESCHEDULE APPOINTMENT</button>
           </form>
-
+ 
           <p class="small">This is the current test flow. Cancellation-fee/refund rules will be added separately.</p>
         `
       );
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Manage appointment page error:",
         error
       );
-
+ 
       res.status(500).send(
         "The appointment could not be loaded."
       );
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.post(
   "/appointment-manage/cancel",
   async (req, res) => {
-
+ 
     const sessionId =
       cleanAppointmentValue(
         req.body.sessionId,
         200
       );
-
+ 
     const token =
       cleanAppointmentValue(
         req.body.token,
         200
       );
-
+ 
     if (
       !appointmentManageTokenIsValid(
         sessionId,
@@ -3098,20 +3119,20 @@ app.post(
         "Invalid appointment management link."
       );
     }
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       let session =
         await stripe.checkout.sessions.retrieve(
           sessionId
         );
-
+ 
       const metadata =
         session.metadata || {};
-
+ 
       if (
         metadata.appointmentStatus ===
         "canceled"
@@ -3125,7 +3146,7 @@ app.post(
           `
         );
       }
-
+ 
       await stripe.checkout.sessions.update(
         session.id,
         {
@@ -3140,15 +3161,15 @@ app.post(
           }
         }
       );
-
+ 
       session =
         await stripe.checkout.sessions.retrieve(
           session.id
         );
-
+ 
       const appointment =
         appointmentFromSession(session);
-
+ 
       try {
         if (appointment.smsConsent) {
           await sendTwilioMessage(
@@ -3162,7 +3183,7 @@ app.post(
           error
         );
       }
-
+ 
       try {
         await sendAppointmentCancellationEmail(
           appointment,
@@ -3175,7 +3196,7 @@ app.post(
           error
         );
       }
-
+ 
       sendPage(
         res,
         "Appointment Cancelled | Business Pro",
@@ -3185,40 +3206,40 @@ app.post(
           <p class="small">This test does not apply the final cancellation-fee/refund policy yet.</p>
         `
       );
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Customer cancellation error:",
         error
       );
-
+ 
       res.status(500).send(
         "The appointment could not be cancelled."
       );
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.post(
   "/appointment-manage/reschedule",
   async (req, res) => {
-
+ 
     const sessionId =
       cleanAppointmentValue(
         req.body.sessionId,
         200
       );
-
+ 
     const token =
       cleanAppointmentValue(
         req.body.token,
         200
       );
-
+ 
     if (
       !appointmentManageTokenIsValid(
         sessionId,
@@ -3229,20 +3250,20 @@ app.post(
         "Invalid appointment management link."
       );
     }
-
+ 
     try {
-
+ 
       const stripe =
         getStripeTestClient();
-
+ 
       let session =
         await stripe.checkout.sessions.retrieve(
           sessionId
         );
-
+ 
       const metadata =
         session.metadata || {};
-
+ 
       await stripe.checkout.sessions.update(
         session.id,
         {
@@ -3255,15 +3276,15 @@ app.post(
           }
         }
       );
-
+ 
       session =
         await stripe.checkout.sessions.retrieve(
           session.id
         );
-
+ 
       const appointment =
         appointmentFromSession(session);
-
+ 
       try {
         await sendAppointmentCancellationEmail(
           appointment,
@@ -3276,35 +3297,35 @@ app.post(
           error
         );
       }
-
+ 
       const bookingBaseUrl =
         String(
           process.env.CUSTOMER_BOOKING_URL ||
           ""
         ).trim();
-
+ 
       if (bookingBaseUrl) {
-
+ 
         const bookingUrl =
           new URL(bookingBaseUrl);
-
+ 
         bookingUrl.searchParams.set(
           "booking",
           "open"
         );
-
+ 
         bookingUrl.searchParams.set(
           "reschedule",
           "1"
         );
-
+ 
         return res.redirect(
           303,
           bookingUrl.toString()
         );
-
+ 
       }
-
+ 
       return sendPage(
         res,
         "Reschedule Appointment | Business Pro",
@@ -3321,7 +3342,7 @@ app.post(
               text-align: center;
               background: #f8fafc;
             }
-
+ 
             .reschedule-card {
               width: min(92vw, 430px);
               padding: 38px 28px;
@@ -3329,47 +3350,47 @@ app.post(
               border-radius: 22px;
               box-shadow: 0 22px 60px rgba(15, 23, 42, 0.16);
             }
-
+ 
             .reschedule-card h1 {
               margin: 0 0 12px;
               font-size: 28px;
               color: #111827;
             }
-
+ 
             .reschedule-card p {
               margin: 0;
               color: #4b5563;
             }
           </style>
-
+ 
           <div class="reschedule-card">
             <h1>Reschedule Appointment</h1>
             <p>Open the Barber Shop Customer Interface and choose your new appointment.</p>
           </div>
         `
       );
-
+ 
     } catch (error) {
-
+ 
       console.error(
         "Reschedule request error:",
         error
       );
-
+ 
       res.status(500).send(
         "The reschedule request could not be processed."
       );
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 app.get(
   "/appointment-payment-cancelled",
   (req, res) => {
-
+ 
     sendPage(
       res,
       "Card Setup Cancelled | Business Pro",
@@ -3379,17 +3400,17 @@ app.get(
         <p><strong>TEST MODE:</strong> No real money was charged.</p>
       `
     );
-
+ 
   }
 );
-
-
+ 
+ 
 // ============================================================
 // BUSINESS PRO LOCAL STRIPE CHECKOUT
 // ============================================================
-
+ 
 const BUSINESS_PRO_PLANS = {
-
+ 
   basic: {
     name: "Basic",
     setupAmount: 99500,
@@ -3397,7 +3418,7 @@ const BUSINESS_PRO_PLANS = {
     advertisingRate: "$0.75 per click",
     advertisingMinimum: "$25 monthly minimum"
   },
-
+ 
   professional: {
     name: "Professional",
     setupAmount: 149500,
@@ -3405,7 +3426,7 @@ const BUSINESS_PRO_PLANS = {
     advertisingRate: "$1.25 per click",
     advertisingMinimum: "$50 monthly minimum"
   },
-
+ 
   "business-pro": {
     name: "Business Pro",
     setupAmount: 249500,
@@ -3413,141 +3434,141 @@ const BUSINESS_PRO_PLANS = {
     advertisingRate: "$2.00 per click",
     advertisingMinimum: "$75 monthly minimum"
   }
-
+ 
 };
-
-
+ 
+ 
 function cleanCheckoutValue(value, maxLength = 500) {
-
+ 
   return String(value || "")
     .trim()
     .slice(0, maxLength);
-
+ 
 }
-
-
+ 
+ 
 app.post(
   "/create-checkout-session",
   async (req, res) => {
-
+ 
     try {
-
+ 
       const stripeSecretKey =
         process.env.STRIPE_SECRET_KEY;
-
-
+ 
+ 
       if (!stripeSecretKey) {
-
+ 
         return res.status(500).json({
-
+ 
           success: false,
-
+ 
           error:
             "Stripe server configuration is incomplete."
-
+ 
         });
-
+ 
       }
-
-
+ 
+ 
       const stripe =
         new Stripe(stripeSecretKey);
-
-
+ 
+ 
       const planKey =
         cleanCheckoutValue(
           req.body.plan,
           50
         );
-
-
+ 
+ 
       const plan =
         BUSINESS_PRO_PLANS[
           planKey
         ];
-
-
+ 
+ 
       if (!plan) {
-
+ 
         return res.status(400).json({
-
+ 
           success: false,
-
+ 
           error:
             "Please choose a valid Business Pro Local package."
-
+ 
         });
-
+ 
       }
-
-
+ 
+ 
       const businessName =
         cleanCheckoutValue(
           req.body.businessName,
           200
         );
-
-
+ 
+ 
       const ownerName =
         cleanCheckoutValue(
           req.body.ownerName,
           200
         );
-
-
+ 
+ 
       const phone =
         cleanCheckoutValue(
           req.body.phone,
           100
         );
-
-
+ 
+ 
       const email =
         cleanCheckoutValue(
           req.body.email,
           320
         );
-
-
+ 
+ 
       const businessAddress =
         cleanCheckoutValue(
           req.body.businessAddress,
           300
         );
-
-
+ 
+ 
       const businessNotes =
         cleanCheckoutValue(
           req.body.businessNotes,
           500
         );
-
-
+ 
+ 
       const advertising =
         req.body.advertising === "on"
           ? "ON"
           : "OFF";
-
-
+ 
+ 
       if (
         !businessName ||
         !ownerName ||
         !phone ||
         !email
       ) {
-
+ 
         return res.status(400).json({
-
+ 
           success: false,
-
+ 
           error:
             "Business name, contact name, phone number, and email address are required."
-
+ 
         });
-
+ 
       }
-
-
+ 
+ 
       const metadata = {
         businessName,
         ownerName,
@@ -3567,8 +3588,8 @@ app.post(
             : "Not selected",
         businessNotes
       };
-
-
+ 
+ 
       // ------------------------------------------------------------
       // BILLING POLICY (per HNH handoff, Section 10 — LOCKED LOGIC):
       // Signup charges the ONE-TIME SETUP FEE ONLY. Monthly service
@@ -3585,26 +3606,26 @@ app.post(
       // COPY_THIS_SERVER_JS.txt to diff against; if you still have
       // that file, send it and I'll verify line-for-line.)
       // ------------------------------------------------------------
-
+ 
       const baseUrl = getRequestBaseUrl(req);
-
+ 
       const session =
         await stripe.checkout.sessions.create({
-
+ 
           mode: "payment",
-
+ 
           customer_creation: "always",
-
+ 
           customer_email:
             email,
-
+ 
           payment_intent_data: {
             setup_future_usage: "off_session",
             metadata
           },
-
+ 
           line_items: [
-
+ 
             {
               price_data: {
                 currency: "usd",
@@ -3617,53 +3638,53 @@ app.post(
               },
               quantity: 1
             }
-
+ 
           ],
-
+ 
           metadata: {
             ...metadata,
             monthlyAmount: String(plan.monthlyAmount)
           },
-
+ 
           success_url:
             `${baseUrl}/join.html?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-
+ 
           cancel_url:
             `${baseUrl}/join.html?payment=cancelled`
-
+ 
         });
-
-
+ 
+ 
       return res.json({
         success: true,
         url: session.url
       });
-
-
+ 
+ 
     } catch (error) {
-
+ 
       console.error(
         "Stripe checkout error:",
         error
       );
-
-
+ 
+ 
       return res.status(500).json({
-
+ 
         success: false,
-
+ 
         error:
           error.message ||
           "The Stripe checkout session could not be created."
-
+ 
       });
-
+ 
     }
-
+ 
   }
 );
-
-
+ 
+ 
 // ============================================================
 // START MONTHLY SERVICE (called by Owner/Admin at public launch)
 //
@@ -3677,48 +3698,48 @@ app.post(
 // "Your first monthly service charge will occur one month after
 // launch and will cover your first completed month of service."
 // ============================================================
-
+ 
 app.post(
   "/start-monthly-service",
   async (req, res) => {
-
+ 
     try {
-
+ 
       const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
       if (!stripeSecretKey) {
         return res.status(500).json({ success: false, error: "Stripe server configuration is incomplete." });
       }
       const stripe = new Stripe(stripeSecretKey);
-
+ 
       const checkoutSessionId = cleanCheckoutValue(req.body.checkoutSessionId, 200);
       if (!checkoutSessionId) {
         return res.status(400).json({ success: false, error: "checkoutSessionId is required." });
       }
-
+ 
       const checkoutSession = await stripe.checkout.sessions.retrieve(checkoutSessionId, {
         expand: ["payment_intent.payment_method"]
       });
-
+ 
       const customerId = checkoutSession.customer;
       const planKey = cleanCheckoutValue(checkoutSession.metadata?.planKey, 50);
       const plan = BUSINESS_PRO_PLANS[planKey];
-
+ 
       if (!customerId || !plan) {
         return res.status(400).json({ success: false, error: "Could not find the saved customer/plan for this checkout session." });
       }
-
+ 
       const paymentMethodId = checkoutSession.payment_intent?.payment_method?.id
         || checkoutSession.payment_intent?.payment_method;
-
+ 
       if (paymentMethodId) {
         await stripe.paymentMethods.attach(paymentMethodId, { customer: customerId }).catch(() => {});
         await stripe.customers.update(customerId, {
           invoice_settings: { default_payment_method: paymentMethodId }
         });
       }
-
+ 
       const billingCycleAnchor = Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60);
-
+ 
       const subscription = await stripe.subscriptions.create({
         customer: customerId,
         items: [{
@@ -3737,33 +3758,34 @@ app.post(
           launchedAt: new Date().toISOString()
         }
       });
-
+ 
       return res.json({ success: true, subscriptionId: subscription.id, firstChargeAt: new Date(billingCycleAnchor * 1000).toISOString() });
-
+ 
     } catch (error) {
       console.error("Start monthly service error:", error);
       return res.status(500).json({ success: false, error: error.message || "Could not start monthly service billing." });
     }
-
+ 
   }
 );
-
-
+ 
+ 
 // ============================================================
 // START SERVER
 // ============================================================
-
+ 
 const PORT =
   process.env.PORT || 3000;
-
-
+ 
+ 
 app.listen(
   PORT,
   () => {
-
+ 
     console.log(
       `Business Pro SMS server running on port ${PORT}`
     );
-
+ 
   }
 );
+ 
