@@ -1,3 +1,24 @@
+
+TomsPC, Connected
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Businessstore · JS
 // ============================================================
 // BUSINESS PRO — SHARED BUSINESS DATA STORE
 //
@@ -26,13 +47,13 @@
 // without needing to change the API routes or the admin UI, since
 // everything goes through the functions below.
 // ============================================================
-
+ 
 const fs = require("fs");
 const path = require("path");
-
+ 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const DATA_FILE = path.join(DATA_DIR, "businesses.json");
-
+ 
 const RECORD_AREAS = [
   "appointments",
   "employees",
@@ -42,7 +63,7 @@ const RECORD_AREAS = [
   "schedules",
   "financials"
 ];
-
+ 
 const DEFAULT_BUSINESSES = [
   {
     id: "business-001",
@@ -67,7 +88,7 @@ const DEFAULT_BUSINESSES = [
     activity: []
   }
 ];
-
+ 
 function defaultRecordsFor(business) {
   return {
     appointments: [{ id: "appointment-1", title: "Test Customer — Barber 1", detail: "Confirmed • Today • 9:00 AM", status: "confirmed" }],
@@ -84,7 +105,7 @@ function defaultRecordsFor(business) {
     financials: [{ id: "expense-1", title: "Test operating expense", detail: "$100 • Unpaid", status: "unpaid" }]
   };
 }
-
+ 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(DATA_FILE)) {
@@ -95,7 +116,7 @@ function ensureFile() {
     fs.writeFileSync(DATA_FILE, JSON.stringify(seeded, null, 2));
   }
 }
-
+ 
 function readAll() {
   ensureFile();
   try {
@@ -107,20 +128,20 @@ function readAll() {
     return [];
   }
 }
-
+ 
 function writeAll(businesses) {
   ensureFile();
   fs.writeFileSync(DATA_FILE, JSON.stringify(businesses, null, 2));
 }
-
+ 
 function listBusinesses() {
   return readAll();
 }
-
+ 
 function getBusiness(id) {
   return readAll().find(business => business.id === id) || null;
 }
-
+ 
 function createBusiness({ id, name, owner }) {
   const businesses = readAll();
   if (!id || !name) throw new Error("id and name are required");
@@ -142,7 +163,7 @@ function createBusiness({ id, name, owner }) {
   writeAll(businesses);
   return business;
 }
-
+ 
 function updateBusinessProfile(id, { owner, trial, subscription }) {
   const businesses = readAll();
   const business = businesses.find(item => item.id === id);
@@ -153,7 +174,7 @@ function updateBusinessProfile(id, { owner, trial, subscription }) {
   writeAll(businesses);
   return business;
 }
-
+ 
 function setBusinessStatus(id, status) {
   const businesses = readAll();
   const business = businesses.find(item => item.id === id);
@@ -162,7 +183,7 @@ function setBusinessStatus(id, status) {
   writeAll(businesses);
   return business;
 }
-
+ 
 function setNotes(id, notes) {
   const businesses = readAll();
   const business = businesses.find(item => item.id === id);
@@ -171,7 +192,7 @@ function setNotes(id, notes) {
   writeAll(businesses);
   return business;
 }
-
+ 
 function logActivity(id, { action, area, protectedAction }) {
   const businesses = readAll();
   const business = businesses.find(item => item.id === id);
@@ -188,7 +209,7 @@ function logActivity(id, { action, area, protectedAction }) {
   writeAll(businesses);
   return business.activity;
 }
-
+ 
 function ensureRecords(business) {
   business.records = business.records || {};
   const defaults = defaultRecordsFor(business);
@@ -197,14 +218,14 @@ function ensureRecords(business) {
   });
   return business.records;
 }
-
+ 
 function getRecords(id, area) {
   const business = getBusiness(id);
   if (!business) throw new Error(`Business "${id}" not found`);
   if (!RECORD_AREAS.includes(area)) throw new Error(`Unknown record area "${area}"`);
   return ensureRecords(business)[area];
 }
-
+ 
 function addRecord(id, area, record) {
   if (!RECORD_AREAS.includes(area)) throw new Error(`Unknown record area "${area}"`);
   const businesses = readAll();
@@ -221,7 +242,7 @@ function addRecord(id, area, record) {
   writeAll(businesses);
   return newRecord;
 }
-
+ 
 function updateRecord(id, area, recordId, changes) {
   if (!RECORD_AREAS.includes(area)) throw new Error(`Unknown record area "${area}"`);
   const businesses = readAll();
@@ -234,7 +255,7 @@ function updateRecord(id, area, recordId, changes) {
   writeAll(businesses);
   return record;
 }
-
+ 
 module.exports = {
   RECORD_AREAS,
   listBusinesses,
@@ -248,3 +269,4 @@ module.exports = {
   addRecord,
   updateRecord
 };
+ 
