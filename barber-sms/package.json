@@ -1,38 +1,14 @@
-
-TomsPC, Connected
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Package · JSON
 {
-  "name": "barber-template-test-9-18-2026",
+  "name": "village-barber-sms",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend services for Business Pro Local and the Village Barber demo",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "express": "^5.2.1",
-    "stripe": "^22.6.2"
+    "express": "^5.1.0",
+    "stripe": "^22.0.0",
+    "twilio": "^5.0.0"
   }
 }
