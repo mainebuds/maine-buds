@@ -1,24 +1,4 @@
 
-TomsPC, Connected
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Server · JS
 // TEST 2 — card first, then PAY NOW or PAY AT STORE, with manage links
 const express = require("express");
 const Stripe = require("stripe");
