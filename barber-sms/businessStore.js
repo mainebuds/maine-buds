@@ -1,24 +1,4 @@
 
-TomsPC, Connected
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-Businessstore · JS
 // ============================================================
 // BUSINESS PRO — SHARED BUSINESS DATA STORE
 //
