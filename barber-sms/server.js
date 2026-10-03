@@ -1778,6 +1778,62 @@ app.post(
 );
  
  
+app.post(
+  "/send-cancellation",
+  async (req, res) => {
+
+    try {
+
+      const phone =
+        cleanAppointmentValue(
+          req.body.phone,
+          50
+        );
+
+      const messageBody =
+        cleanAppointmentValue(
+          req.body.message,
+          1600
+        );
+
+      if (!phone || !messageBody) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "A customer phone number and message are required."
+        });
+      }
+
+      const result =
+        await sendTwilioMessage(
+          phone,
+          messageBody
+        );
+
+      return res.json({
+        success: true,
+        messageSid: result.sid
+      });
+
+    } catch (error) {
+
+      console.error(
+        "SMS cancellation error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "The cancellation text could not be sent."
+      });
+
+    }
+
+  }
+);
+
 app.get(
   "/appointment-launch",
   (req, res) => {
